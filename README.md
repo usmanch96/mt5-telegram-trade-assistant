@@ -154,9 +154,10 @@ MT5-Telegram-Bot/
 
 ### Step 1 — Clone the repository
 ```powershell
-git clone https://github.com/YOUR_USERNAME/mt5-telegram-trade-assistant.git
+git clone https://github.com/usmanch96/mt5-telegram-trade-assistant.git
 cd mt5-telegram-trade-assistant
 ```
+
 
 ### Step 2 — Install dependencies
 ```powershell
