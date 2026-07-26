@@ -1,0 +1,36 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment & Secret files (CRITICAL: Do not commit secrets)
+.env
+.env.local
+*.env
+
+# SQLite Database & Storage
+*.db
+*.sqlite
+*.sqlite3
+database/*.db
+
+# Log files
+logs/
+*.log
+
+# Environments / Virtualenvs
+.venv/
+venv/
+ENV/
+env/
+
+# IDE & Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db
+Desktop.ini
+.DS_Store

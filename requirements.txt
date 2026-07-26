@@ -1,0 +1,4 @@
+python-telegram-bot[job-queue]>=20.8
+MetaTrader5>=5.0.4500
+python-dotenv>=1.0.1
+pandas>=2.0.0
