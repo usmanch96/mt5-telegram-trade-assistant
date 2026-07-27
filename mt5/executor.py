@@ -35,6 +35,7 @@ def translate_error_code(retcode: int) -> str:
         10018: "Market is closed for this symbol.",
         10019: "No money (Insufficient margin/equity to open this lot size).",
         10020: "Prices changed. Retry trade.",
+        10025: "No changes (Target SL/TP matches current position values).",
         10030: "Unsupported filling mode.",
         10034: "Trade is disabled by broker.",
         10036: "Position has already been closed (stopped out or closed manually).",
@@ -265,10 +266,13 @@ def modify_position_stops(ticket: int, sl: float, tp: float) -> Dict[str, Any]:
                             f"TP ({tp:.{digits}f}) is too close to Ask ({current_price:.{digits}f})."
                         )
                         return {"success": False, "message": "Stops Level violation: TP is too close to Ask."}
-    else:
-        sl = float(sl)
-        tp = float(tp)
-        
+    # Check if target SL & TP already match current position parameters
+    curr_sl = round(float(pos.sl), digits) if (sym_info and pos.sl > 0) else float(pos.sl)
+    curr_tp = round(float(pos.tp), digits) if (sym_info and pos.tp > 0) else float(pos.tp)
+    if sl == curr_sl and tp == curr_tp:
+        logger.info(f"Modify stops skipped for ticket #{ticket}: Target SL ({sl}) & TP ({tp}) match current values.")
+        return {"success": True, "message": f"Target SL/TP levels already set for ticket #{ticket}."}
+
     request = {
         "action": mt5.TRADE_ACTION_SLTP,
         "position": ticket,
@@ -276,13 +280,18 @@ def modify_position_stops(ticket: int, sl: float, tp: float) -> Dict[str, Any]:
         "sl": sl,
         "tp": tp,
     }
-    
+
     log_trade_request(request)
     result = mt5.order_send(request)
-    
+
     if result is None:
         return {"success": False, "message": f"Modification failed. Error: {mt5.last_error()}"}
-        
+
+    # Retcode 10025 is "TRADE_RETCODE_NO_CHANGES" — treat as success
+    if result.retcode == getattr(mt5, "TRADE_RETCODE_NO_CHANGES", 10025):
+        logger.info(f"Modify stops for ticket #{ticket} completed: Retcode 10025 (No changes).")
+        return {"success": True, "message": f"Target SL/TP already set for ticket #{ticket}."}
+
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         err_msg = translate_error_code(result.retcode)
         logger.error(f"Modify stops failed. Retcode: {result.retcode}. Result: {result.comment}")
