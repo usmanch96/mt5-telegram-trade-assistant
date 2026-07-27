@@ -16,8 +16,10 @@ _MENU_BUTTON_REGEX = (
     r"|🥞 Layering Trade"
     r"|⚡ Batch Controls"
     r"|🔔 Price Alerts"
+    r"|🧮 Risk Calculator"
     r"|🔄 Refresh Status"
     r")$"
+
 )
 
 # Use this instead of `filters.TEXT & ~filters.COMMAND` inside conversation states

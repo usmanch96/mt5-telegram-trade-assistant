@@ -25,6 +25,8 @@ from bot.handlers.alerts import (
     cb_delete_alert_action,
     get_alert_conv_handler
 )
+from bot.handlers.calculator import get_risk_calculator_handler, cmd_start_calculator, cb_cancel_calc
+
 from services.trail_service import trailing_stop_job
 from services.alert_service import price_alert_job
 from services.logger import logger
@@ -63,6 +65,8 @@ def build_bot_app():
     app.add_handler(get_alert_conv_handler())
     app.add_handler(get_batch_conv_handler())
     app.add_handler(get_layer_conv_handler())
+    app.add_handler(get_risk_calculator_handler())
+
     
     # Command Handlers
     app.add_handler(CommandHandler("start", cmd_start))
@@ -105,6 +109,10 @@ def build_bot_app():
     # Callback Handlers (Price Alerts)
     app.add_handler(CallbackQueryHandler(cb_alerts_menu, pattern="^menu_alerts$"))
     app.add_handler(CallbackQueryHandler(cb_view_active_alerts, pattern="^alert_list$"))
+
+    # Callback Handlers (Calculator)
+    app.add_handler(CallbackQueryHandler(cb_cancel_calc, pattern="^calc_cancel$"))
+
     app.add_handler(CallbackQueryHandler(cb_delete_alert_action, pattern=r"^alert_del_\d+$"))
 
     # Noop handler for decorative section-header buttons

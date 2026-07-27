@@ -6,7 +6,7 @@ def get_persistent_menu_keyboard() -> ReplyKeyboardMarkup:
         ["📊 Dashboard", "💼 Active Positions"],
         ["🚀 Open Trade", "🥞 Layering Trade"],
         ["⚡ Batch Controls", "🔔 Price Alerts"],
-        ["🔄 Refresh Status"]
+        ["🧮 Risk Calculator", "🔄 Refresh Status"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -24,9 +24,13 @@ def get_main_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("⚡ Batch Controls", callback_data="menu_batch"),
             InlineKeyboardButton("🔔 Price Alerts", callback_data="menu_alerts")
+        ],
+        [
+            InlineKeyboardButton("🧮 Smart Risk Calculator", callback_data="menu_calc")
         ]
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 def get_back_keyboard(back_callback: str = "menu_main") -> InlineKeyboardMarkup:
     """Returns a keyboard with a single 'Back to Menu' button."""
