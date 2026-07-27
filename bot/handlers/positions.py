@@ -39,14 +39,60 @@ def format_price(price: float, symbol: str) -> str:
         return f"`{parts[0]}.{decimals}`"
     return f"`{s}`"
 
-def format_position_short(p: dict) -> str:
-    """Formats a position into a clean one-line summary."""
+def calc_position_sl_tp_pnl(p: dict, sym_info: Optional[dict]):
+    """
+    Calculates estimated P&L if SL or TP is hit, in account currency.
+    Returns (sl_pnl, tp_pnl) floats or None if not set or info missing.
+    """
+    sl_pnl = None
+    tp_pnl = None
+
+    if sym_info and sym_info.get("trade_tick_size", 0) > 0:
+        tick_size = sym_info["trade_tick_size"]
+        tick_value = sym_info["trade_tick_value"]
+        vol = p["volume"]
+        entry = p["price_open"]
+        pos_type = p["type"]
+
+        if p["sl"] > 0:
+            delta = (p["sl"] - entry) if pos_type == "BUY" else (entry - p["sl"])
+            sl_pnl = (delta / tick_size) * tick_value * vol
+
+        if p["tp"] > 0:
+            delta = (p["tp"] - entry) if pos_type == "BUY" else (entry - p["tp"])
+            tp_pnl = (delta / tick_size) * tick_value * vol
+
+    return sl_pnl, tp_pnl
+
+def format_position_short(p: dict, digits: int = 5, sym_info: Optional[dict] = None) -> str:
+    """Formats a position into a clean, compact summary block with SL/TP risk & reward."""
     pnl_emoji = "🟢" if p["profit"] >= 0 else "🔴"
     dir_arrow  = "▲" if p["type"] == "BUY" else "▼"
+    pnl_sign   = "+" if p["profit"] >= 0 else ""
+
+    sl_pnl, tp_pnl = calc_position_sl_tp_pnl(p, sym_info)
+
+    if p["sl"] > 0:
+        if sl_pnl is not None:
+            sign = "+" if sl_pnl >= 0 else ""
+            sl_str = f"`{p['sl']:.{digits}f}` (`{sign}{sl_pnl:,.2f}`)"
+        else:
+            sl_str = f"`{p['sl']:.{digits}f}`"
+    else:
+        sl_str = "_None_"
+
+    if p["tp"] > 0:
+        if tp_pnl is not None:
+            sign = "+" if tp_pnl >= 0 else ""
+            tp_str = f"`{p['tp']:.{digits}f}` (`{sign}{tp_pnl:,.2f}`)"
+        else:
+            tp_str = f"`{p['tp']:.{digits}f}`"
+    else:
+        tp_str = "_None_"
+
     return (
-        f"🔸 `#{p['ticket']}` *{p['symbol']}*  "
-        f"{dir_arrow} `{p['volume']:.2f}L`  "
-        f"{pnl_emoji} `{p['profit']:+.2f}`"
+        f"🔸 `#{p['ticket']}` *{p['symbol']}* {dir_arrow} `{p['volume']:.2f}L` {pnl_emoji} `{pnl_sign}{p['profit']:,.2f}`\n"
+        f"   🔴 SL {sl_str}  🟢 TP {tp_str}"
     )
 
 def format_position_detail(p: dict, digits: int = 5) -> str:
@@ -98,14 +144,39 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_back_keyboard())
         return
 
+    # Fetch symbol info for all open symbols
+    unique_symbols = list(set(p["symbol"] for p in positions))
+    sym_map = {}
+    for s in unique_symbols:
+        info = await asyncio.to_thread(get_symbol_info, s)
+        if info:
+            sym_map[s] = info
+
     summary_lines = ["💼 *Active Positions*", "━━━━━━━━━━━━━━━━━━━━"]
     total_pnl = 0.0
+    total_sl_pnl = 0.0
+    total_tp_pnl = 0.0
+    has_any_sl = False
+    has_any_tp = False
+
     keyboard_buttons = []
     current_row = []
 
     for pos in positions:
-        summary_lines.append(format_position_short(pos))
+        s_info = sym_map.get(pos["symbol"])
+        digits = s_info["digits"] if s_info else 5
+
+        sl_pnl, tp_pnl = calc_position_sl_tp_pnl(pos, s_info)
+
         total_pnl += pos["profit"]
+        if sl_pnl is not None:
+            total_sl_pnl += sl_pnl
+            has_any_sl = True
+        if tp_pnl is not None:
+            total_tp_pnl += tp_pnl
+            has_any_tp = True
+
+        summary_lines.append(format_position_short(pos, digits=digits, sym_info=s_info))
 
         btn_text = f"⚙️ #{pos['ticket']} {pos['symbol']}"
         btn = InlineKeyboardButton(btn_text, callback_data=f"pos_view_{pos['ticket']}")
@@ -120,8 +191,24 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     pnl_emoji = "🟢" if total_pnl >= 0 else "🔴"
     pnl_sign  = "+" if total_pnl >= 0 else ""
+
+    sl_total_sign = "+" if total_sl_pnl >= 0 else ""
+    tp_total_sign = "+" if total_tp_pnl >= 0 else ""
+
     summary_lines.append("━━━━━━━━━━━━━━━━━━━━")
-    summary_lines.append(f"{pnl_emoji} *Total Float P&L* · `{pnl_sign}{total_pnl:,.2f}`")
+    summary_lines.append(f"📊 *Float P&L* · {pnl_emoji} `{pnl_sign}{total_pnl:,.2f}`")
+
+    if has_any_sl:
+        sl_emoji = "🟢" if total_sl_pnl >= 0 else "🔴"
+        summary_lines.append(f"🔴 *Total SL Risk* · {sl_emoji} `{sl_total_sign}{total_sl_pnl:,.2f}`")
+    else:
+        summary_lines.append("🔴 *Total SL Risk* · _No SL set_")
+
+    if has_any_tp:
+        summary_lines.append(f"🟢 *Total TP Target* · 🟢 `{tp_total_sign}{total_tp_pnl:,.2f}`")
+    else:
+        summary_lines.append("🟢 *Total TP Target* · _No TP set_")
+
     summary_lines.append("")
     summary_lines.append("👇 _Tap a ticket to manage:_")
 
