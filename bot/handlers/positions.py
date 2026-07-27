@@ -10,7 +10,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
-from mt5.monitor import get_active_positions, get_symbol_info
+from mt5.monitor import get_active_positions, get_symbol_info, get_account_details
 from mt5.executor import close_position, modify_position_stops
 from database.models import add_trailing_stop, remove_trailing_stop
 from bot.keyboards import (
@@ -41,38 +41,67 @@ def format_price(price: float, symbol: str) -> str:
         return f"`{parts[0]}.{decimals}`"
     return f"`{s}`"
 
-def calc_position_sl_tp_pnl(p: dict, sym_info: Optional[dict]):
+def calc_position_sl_tp_pnl(p: dict, sym_info: Optional[dict], is_cent_account: bool = False):
     """
     Calculates estimated P&L if SL or TP is hit, in account currency.
-    Returns (sl_pnl, tp_pnl) floats or None if not set or info missing.
+    Returns (sl_pnl, tp_pnl) floats or None if not set.
     """
     sl_pnl = None
     tp_pnl = None
 
-    if sym_info and sym_info.get("trade_tick_size", 0) > 0:
-        tick_size = sym_info["trade_tick_size"]
-        tick_value = sym_info["trade_tick_value"]
-        vol = p["volume"]
-        entry = p["price_open"]
-        pos_type = p["type"]
+    if not sym_info:
+        digits = 5
+        point = 0.00001
+        tick_size = 0.0001
+        tick_value = 10.0
+    else:
+        digits = sym_info.get("digits", 5)
+        point = sym_info.get("point", 0.00001)
+        tick_size = sym_info.get("trade_tick_size", 0.0)
+        tick_value = sym_info.get("trade_tick_value", 0.0)
 
-        if p["sl"] > 0:
-            delta = (p["sl"] - entry) if pos_type == "BUY" else (entry - p["sl"])
-            sl_pnl = (delta / tick_size) * tick_value * vol
+        if tick_size <= 0:
+            tick_size = 10 * point if (digits == 3 or digits == 5) else (point if point > 0 else 0.01)
 
-        if p["tp"] > 0:
-            delta = (p["tp"] - entry) if pos_type == "BUY" else (entry - p["tp"])
-            tp_pnl = (delta / tick_size) * tick_value * vol
+        if tick_value <= 0:
+            if digits == 3 or digits == 5:
+                tick_value = 10.0
+                tick_size = 10 * point if point > 0 else 0.0001
+            else:
+                tick_value = tick_size if tick_size > 0 else 1.0
+
+    # Exness Cent account / symbol scaling (e.g. XAUUSDc)
+    symbol = p.get("symbol", "")
+    if is_cent_account or (symbol and symbol.endswith("c") and len(symbol) > 4):
+        if tick_value > 0 and (tick_value / (tick_size or 1)) > 1000:
+            tick_value = tick_value / 100.0
+
+    vol = p["volume"]
+    entry = p["price_open"]
+    pos_type = p["type"]
+
+    if p["sl"] > 0 and tick_size > 0:
+        delta = (p["sl"] - entry) if pos_type == "BUY" else (entry - p["sl"])
+        sl_pnl = (delta / tick_size) * tick_value * vol
+
+    if p["tp"] > 0 and tick_size > 0:
+        delta = (p["tp"] - entry) if pos_type == "BUY" else (entry - p["tp"])
+        tp_pnl = (delta / tick_size) * tick_value * vol
 
     return sl_pnl, tp_pnl
 
-def format_position_short(p: dict, digits: int = 5, sym_info: Optional[dict] = None) -> str:
+def format_position_short(p: dict, digits: int = 5, sym_info: Optional[dict] = None, is_cent: bool = False) -> str:
     """Formats a position into a clean, compact summary block with SL/TP risk & reward."""
     pnl_emoji = "🟢" if p["profit"] >= 0 else "🔴"
     dir_arrow  = "▲" if p["type"] == "BUY" else "▼"
     pnl_sign   = "+" if p["profit"] >= 0 else ""
 
-    sl_pnl, tp_pnl = calc_position_sl_tp_pnl(p, sym_info)
+    # Clean decimal precision for Gold, Commodities, Crypto, Indices
+    sym_upper = p["symbol"].upper()
+    if any(x in sym_upper for x in ["XAU", "XAG", "BTC", "US30", "NAS100", "SPX"]):
+        digits = min(digits, 2)
+
+    sl_pnl, tp_pnl = calc_position_sl_tp_pnl(p, sym_info, is_cent_account=is_cent)
 
     if p["sl"] > 0:
         if sl_pnl is not None:
@@ -146,6 +175,14 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
             await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_back_keyboard())
         return
 
+    # Fetch account info to check for Cent accounts
+    acc = await asyncio.to_thread(get_account_details)
+    is_cent = False
+    if acc:
+        curr = acc.get("currency", "").upper()
+        if "USDC" in curr or "USCC" in curr or "EURC" in curr or curr.endswith("C"):
+            is_cent = True
+
     # Fetch symbol info for all open symbols
     unique_symbols = list(set(p["symbol"] for p in positions))
     sym_map = {}
@@ -167,18 +204,23 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
     for pos in positions:
         s_info = sym_map.get(pos["symbol"])
         digits = s_info["digits"] if s_info else 5
+        if any(x in pos["symbol"].upper() for x in ["XAU", "XAG", "BTC", "US30", "NAS100", "SPX"]):
+            digits = min(digits, 2)
 
-        sl_pnl, tp_pnl = calc_position_sl_tp_pnl(pos, s_info)
+        sl_pnl, tp_pnl = calc_position_sl_tp_pnl(pos, s_info, is_cent_account=is_cent)
 
         total_pnl += pos["profit"]
-        if sl_pnl is not None:
-            total_sl_pnl += sl_pnl
+        if pos["sl"] > 0:
             has_any_sl = True
-        if tp_pnl is not None:
-            total_tp_pnl += tp_pnl
-            has_any_tp = True
+            if sl_pnl is not None:
+                total_sl_pnl += sl_pnl
 
-        summary_lines.append(format_position_short(pos, digits=digits, sym_info=s_info))
+        if pos["tp"] > 0:
+            has_any_tp = True
+            if tp_pnl is not None:
+                total_tp_pnl += tp_pnl
+
+        summary_lines.append(format_position_short(pos, digits=digits, sym_info=s_info, is_cent=is_cent))
 
         btn_text = f"⚙️ #{pos['ticket']} {pos['symbol']}"
         btn = InlineKeyboardButton(btn_text, callback_data=f"pos_view_{pos['ticket']}")

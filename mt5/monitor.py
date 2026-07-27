@@ -84,21 +84,31 @@ def get_active_positions(symbol: Optional[str] = None) -> List[Dict[str, Any]]:
 def get_symbol_info(symbol: str) -> Optional[Dict[str, Any]]:
     """
     Retrieves information for a specific trading symbol (e.g., pip size, bid/ask, tick size).
+    Supports exact symbol names, uppercase, and Cent account suffixes (e.g., XAUUSDc).
     """
     if not check_connection():
         return None
-        
+
     try:
-        symbol_upper = symbol.upper()
-        # Ensure symbol is visible in Market Watch
-        if not mt5.symbol_select(symbol_upper, True):
-            logger.error(f"Failed to select symbol {symbol_upper} in Market Watch.")
-            return None
-            
-        info = mt5.symbol_info(symbol_upper)
+        candidates = [symbol]
+        if symbol.upper() != symbol:
+            candidates.append(symbol.upper())
+        if symbol.upper().endswith("C"):
+            candidates.append(symbol.upper()[:-1] + "c")
+
+        info = None
+        target_sym = None
+        for candidate in candidates:
+            if mt5.symbol_select(candidate, True):
+                info = mt5.symbol_info(candidate)
+                if info is not None:
+                    target_sym = candidate
+                    break
+
         if info is None:
+            logger.error(f"Failed to select symbol '{symbol}' in Market Watch.")
             return None
-            
+
         return {
             "name": info.name,
             "digits": info.digits,
@@ -115,6 +125,7 @@ def get_symbol_info(symbol: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Exception getting symbol info for {symbol}: {e}")
         return None
+
 
 def get_active_orders(symbol: Optional[str] = None) -> List[Dict[str, Any]]:
     """
