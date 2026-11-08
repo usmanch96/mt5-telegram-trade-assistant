@@ -5,6 +5,7 @@ from mt5.monitor import get_account_details
 from config import settings
 from bot.keyboards import get_main_keyboard
 from bot.middleware import restricted
+from services.logger import logger
 
 # MT5 account trade mode constants
 _TRADE_MODE_LABELS = {0: "Demo", 1: "Contest", 2: "Real"}
@@ -14,11 +15,8 @@ def _margin_bar(level: float) -> str:
     filled = min(10, int(level / 100))  # Each block = 100%
     return "🟩" * filled + "⬜" * (10 - filled)
 
-def format_account_info(acc: dict) -> str:
+def format_account_info(acc: dict, risk_lines: list = None) -> str:
     """Formats MT5 account information dictionary into a rich Markdown status card."""
-    profit_emoji = "🟢" if acc["profit"] >= 0 else "🔴"
-    profit_sign  = "+" if acc["profit"] >= 0 else ""
-
     trade_mode_label = _TRADE_MODE_LABELS.get(acc["trade_mode"], str(acc["trade_mode"]))
 
     no_trades = acc["margin_level"] == 0
@@ -40,6 +38,13 @@ def format_account_info(acc: dict) -> str:
             f"{_margin_bar(acc['margin_level'])}\n"
         )
 
+    if risk_lines:
+        risk_block = "\n" + "\n".join(risk_lines) + "\n"
+    else:
+        profit_emoji = "🟢" if acc["profit"] >= 0 else "🔴"
+        profit_sign  = "+" if acc["profit"] >= 0 else ""
+        risk_block = f"\n📊 *Float P&L* · {profit_emoji} `{profit_sign}{acc['profit']:,.2f} {acc['currency']}`\n"
+
     return (
         f"📊 *Account Status*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -49,7 +54,8 @@ def format_account_info(acc: dict) -> str:
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"💰 *Balance* · `{acc['balance']:,.2f} {acc['currency']}`\n"
         f"📈 *Equity* · `{acc['equity']:,.2f} {acc['currency']}`\n"
-        f"{profit_emoji} *Float PnL* · `{profit_sign}{acc['profit']:,.2f} {acc['currency']}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━"
+        f"{risk_block}"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔒 Locked · `{acc['margin']:,.2f}`  🔓 Free · `{acc['margin_free']:,.2f}`\n"
         f"{margin_section}"
@@ -71,7 +77,12 @@ async def render_account_dashboard(update: Update, context: ContextTypes.DEFAULT
     """Unified renderer that displays or updates the live Account Status card in place."""
     try:
         acc_details = await asyncio.to_thread(get_account_details)
-        text = format_account_info(acc_details) if acc_details else _get_offline_account_text()
+        if acc_details:
+            from bot.handlers.batch import compute_portfolio_risk_summary_lines
+            risk_lines = await compute_portfolio_risk_summary_lines()
+            text = format_account_info(acc_details, risk_lines=risk_lines)
+        else:
+            text = _get_offline_account_text()
     except Exception as e:
         logger.error(f"Error fetching account details: {e}")
         text = _get_offline_account_text()
