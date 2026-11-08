@@ -352,6 +352,7 @@ async def cb_view_position(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sym_info = await asyncio.to_thread(get_symbol_info, target_pos["symbol"])
     digits = sym_info["digits"] if sym_info else 5
 
+    context.user_data["active_card_msg_id"] = query.message.message_id
     await query.edit_message_text(
         text=format_position_detail(target_pos, digits=digits),
         parse_mode="Markdown",
@@ -367,6 +368,7 @@ async def cb_close_position_action(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     
     ticket = int(query.data.split("_")[2])
+    context.user_data["active_card_msg_id"] = query.message.message_id
     await query.edit_message_text(f"⚡ *Closing ticket #{ticket}...*", parse_mode="Markdown")
     
     res = await asyncio.to_thread(close_position, ticket)
@@ -383,6 +385,7 @@ async def cb_be_position_action(update: Update, context: ContextTypes.DEFAULT_TY
     await query.answer()
     
     ticket = int(query.data.split("_")[2])
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
     pos = next((p for p in positions if p["ticket"] == ticket), None)
@@ -459,6 +462,7 @@ async def cb_partial_close_options(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     
     ticket = int(query.data.split("_")[2])
+    context.user_data["active_card_msg_id"] = query.message.message_id
 
     positions = await asyncio.to_thread(get_active_positions)
     pos = next((p for p in positions if p["ticket"] == ticket), None)
@@ -505,6 +509,7 @@ async def cb_partial_close_execute(update: Update, context: ContextTypes.DEFAULT
     data_parts = query.data.split("_")
     ticket = int(data_parts[2])
     ratio = float(data_parts[3])
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     await query.edit_message_text(f"⚡ *Executing partial close of {int(ratio * 100)}% for ticket #{ticket}...*", parse_mode="Markdown")
     
@@ -563,6 +568,7 @@ async def cb_edit_stops_menu(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     
     ticket = int(query.data.split("_")[3])
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
     pos = next((p for p in positions if p["ticket"] == ticket), None)
@@ -593,6 +599,7 @@ async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_
     """Executes relative stops adjustments (SL/TP +/- pips) via button clicks."""
     query = update.callback_query
     await query.answer()
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     parts = query.data.split("_")
     ticket = int(parts[2])
@@ -613,18 +620,7 @@ async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_
     current_tp = pos["tp"]
     
     if action == "custom":
-        context.user_data["edit_ticket"] = ticket
-        await query.edit_message_text(
-            text=(
-                f"✏️ *Modify Stops for Ticket #{ticket}*\n\n"
-                f"Please type the new Stop Loss (SL) and Take Profit (TP) prices separated by a space.\n"
-                f"Example: `2420.50 2480.00`\n\n"
-                f"• Enter `0` to clear a stop (e.g. `0 2480.00` to set TP only).\n"
-                f"• Write `/cancel` to abort."
-            ),
-            parse_mode="Markdown"
-        )
-        return
+        return await start_edit_stops(update, context)
         
     sym_info = await asyncio.to_thread(get_symbol_info, symbol)
     if not sym_info:
@@ -761,7 +757,8 @@ async def txt_edit_stops_input(update: Update, context: ContextTypes.DEFAULT_TYP
                 return ConversationHandler.END
             except Exception:
                 pass
-        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_trades"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_trades"))
+        context.user_data["active_card_msg_id"] = msg.message_id
         return ConversationHandler.END
 
     sl_val, tp_val, _, err = parse_quick_price_input(text, [pos])
@@ -776,7 +773,8 @@ async def txt_edit_stops_input(update: Update, context: ContextTypes.DEFAULT_TYP
                 return WAITING_STOPS
             except Exception:
                 pass
-        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=prompt_kb)
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_text, parse_mode="Markdown", reply_markup=prompt_kb)
+        context.user_data["active_card_msg_id"] = msg.message_id
         return WAITING_STOPS
 
     final_sl = sl_val if sl_val is not None else pos["sl"]
@@ -828,7 +826,8 @@ async def txt_edit_stops_input(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception:
             pass
 
-    await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=done_kb)
+    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=done_kb)
+    context.user_data["active_card_msg_id"] = msg.message_id
     return ConversationHandler.END
 
 async def cb_cancel_to_view(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -840,12 +839,33 @@ async def cb_cancel_modification(update: Update, context: ContextTypes.DEFAULT_T
     """Cancels position modification wizard."""
     query = update.callback_query
     await query.answer("Modification aborted.")
+    context.user_data["active_card_msg_id"] = query.message.message_id
     await query.edit_message_text("❌ *Modification cancelled.*", parse_mode="Markdown", reply_markup=get_back_keyboard("menu_trades"))
     return ConversationHandler.END
 
 async def cmd_cancel_modification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Command cancel handling."""
-    await update.message.reply_text("❌ *Modification cancelled.*", parse_mode="Markdown", reply_markup=get_back_keyboard("menu_trades"))
+    if update.message:
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        chat_id = update.effective_chat.id
+        old_card_id = context.user_data.get("active_card_msg_id")
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text="❌ *Modification cancelled.*",
+                    parse_mode="Markdown",
+                    reply_markup=get_back_keyboard("menu_trades")
+                )
+                return ConversationHandler.END
+            except Exception:
+                pass
+        msg = await context.bot.send_message(chat_id=chat_id, text="❌ *Modification cancelled.*", parse_mode="Markdown", reply_markup=get_back_keyboard("menu_trades"))
+        context.user_data["active_card_msg_id"] = msg.message_id
     return ConversationHandler.END
 
 # --- Handler Config ---

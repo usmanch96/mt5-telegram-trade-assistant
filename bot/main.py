@@ -52,6 +52,7 @@ def build_bot_app():
     # Unified Account Status / Dashboard Commands
     app.add_handler(CommandHandler(["start", "menu", "account", "status", "dashboard"], cmd_start))
     app.add_handler(CommandHandler(["quickstops", "faststops"], cmd_quick_stops))
+    app.add_handler(CommandHandler(["positions", "trades"], cb_active_positions))
     
     # Callback Handlers (Unified Navigation & Refresh)
     app.add_handler(CallbackQueryHandler(cb_main_menu, pattern=r"^(menu_main|menu_account|menu_refresh)$"))

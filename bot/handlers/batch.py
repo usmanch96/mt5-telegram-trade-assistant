@@ -622,7 +622,8 @@ async def txt_quick_guided_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return WAITING_QUICK_GUIDED_SL
             except Exception:
                 pass
-        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_guided_sl_keyboard())
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_text, parse_mode="Markdown", reply_markup=get_quick_guided_sl_keyboard())
+        context.user_data["active_card_msg_id"] = msg.message_id
         return WAITING_QUICK_GUIDED_SL
         
     positions = context.user_data.get("b_positions_snapshot", [])
@@ -662,9 +663,12 @@ async def render_quick_guided_tp_prompt(message, positions: list, sl_val: Option
             reply_markup=kb
         )
     else:
-        msg = await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        chat_id = message.chat_id if hasattr(message, "chat_id") else message.chat.id
         if context:
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=kb)
             context.user_data["active_card_msg_id"] = msg.message_id
+        else:
+            await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
     return WAITING_QUICK_GUIDED_TP
 
 async def cb_quick_guided_tp_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -728,7 +732,8 @@ async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return WAITING_QUICK_GUIDED_TP
             except Exception:
                 pass
-        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_guided_tp_keyboard())
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_text, parse_mode="Markdown", reply_markup=get_quick_guided_tp_keyboard())
+        context.user_data["active_card_msg_id"] = msg.message_id
         return WAITING_QUICK_GUIDED_TP
         
     sl_val = context.user_data.get("quick_sl")
@@ -741,7 +746,8 @@ async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return ConversationHandler.END
             except Exception:
                 pass
-        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        context.user_data["active_card_msg_id"] = msg.message_id
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
@@ -765,7 +771,8 @@ async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
             return ConversationHandler.END
         except Exception:
             pass
-    await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    context.user_data["active_card_msg_id"] = msg.message_id
     return ConversationHandler.END
 
 # --- Single SL-Only / TP-Only Modes ---
@@ -800,9 +807,12 @@ async def render_quick_single_sl_prompt(message, positions: list, is_edit: bool 
             reply_markup=kb
         )
     else:
-        msg = await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        chat_id = message.chat_id if hasattr(message, "chat_id") else message.chat.id
         if context:
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=kb)
             context.user_data["active_card_msg_id"] = msg.message_id
+        else:
+            await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
     return WAITING_QUICK_ONLY_SL
 
 async def cb_quick_single_sl_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -862,7 +872,8 @@ async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return WAITING_QUICK_ONLY_SL
             except Exception:
                 pass
-        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_single_sl_keyboard())
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_text, parse_mode="Markdown", reply_markup=get_quick_single_sl_keyboard())
+        context.user_data["active_card_msg_id"] = msg.message_id
         return WAITING_QUICK_ONLY_SL
         
     positions = await asyncio.to_thread(get_active_positions)
@@ -874,7 +885,8 @@ async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return ConversationHandler.END
             except Exception:
                 pass
-        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        context.user_data["active_card_msg_id"] = msg.message_id
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
@@ -898,7 +910,8 @@ async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
             return ConversationHandler.END
         except Exception:
             pass
-    await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    context.user_data["active_card_msg_id"] = msg.message_id
     return ConversationHandler.END
 
 async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
@@ -931,9 +944,12 @@ async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool 
             reply_markup=kb
         )
     else:
-        msg = await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        chat_id = message.chat_id if hasattr(message, "chat_id") else message.chat.id
         if context:
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=kb)
             context.user_data["active_card_msg_id"] = msg.message_id
+        else:
+            await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
     return WAITING_QUICK_ONLY_TP
 
 async def cb_quick_single_tp_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -993,7 +1009,8 @@ async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return WAITING_QUICK_ONLY_TP
             except Exception:
                 pass
-        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_single_tp_keyboard())
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_text, parse_mode="Markdown", reply_markup=get_quick_single_tp_keyboard())
+        context.user_data["active_card_msg_id"] = msg.message_id
         return WAITING_QUICK_ONLY_TP
         
     positions = await asyncio.to_thread(get_active_positions)
@@ -1005,7 +1022,8 @@ async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
                 return ConversationHandler.END
             except Exception:
                 pass
-        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        context.user_data["active_card_msg_id"] = msg.message_id
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
@@ -1029,7 +1047,8 @@ async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
             return ConversationHandler.END
         except Exception:
             pass
-    await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    context.user_data["active_card_msg_id"] = msg.message_id
     return ConversationHandler.END
 
 # --- Direct Chat Input (Fast Mode) ---
@@ -1055,7 +1074,8 @@ async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TY
                 return ConversationHandler.END
             except Exception:
                 pass
-        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        context.user_data["active_card_msg_id"] = msg.message_id
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
@@ -1077,7 +1097,8 @@ async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TY
                 return WAITING_QUICK_STOPS_INPUT
             except Exception:
                 pass
-        await update.message.reply_text(err_prompt, parse_mode="Markdown", reply_markup=get_quick_stops_keyboard(positions, target_sym))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_prompt, parse_mode="Markdown", reply_markup=get_quick_stops_keyboard(positions, target_sym))
+        context.user_data["active_card_msg_id"] = msg.message_id
         return WAITING_QUICK_STOPS_INPUT
         
     res_text = await apply_quick_stops_values(target_positions, sl_val, tp_val)
@@ -1093,11 +1114,14 @@ async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TY
             return ConversationHandler.END
         except Exception:
             pass
-    await update.message.reply_text(
+    msg = await context.bot.send_message(
+        chat_id=chat_id,
         text=res_text,
         parse_mode="Markdown",
         reply_markup=get_back_keyboard("menu_main")
     )
+    context.user_data["active_card_msg_id"] = msg.message_id
+    return ConversationHandler.END
     return ConversationHandler.END
 
 @restricted
