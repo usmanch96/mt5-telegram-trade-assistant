@@ -472,13 +472,14 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
         target_positions = positions
 
     context.user_data["b_positions_snapshot"] = target_positions
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     if data == "qstop_mode_both":
-        return await render_quick_guided_sl_prompt(query.message, target_positions, is_edit=True)
+        return await render_quick_guided_sl_prompt(query.message, target_positions, is_edit=True, context=context)
     elif data == "qstop_mode_sl_only":
-        return await render_quick_single_sl_prompt(query.message, target_positions, is_edit=True)
+        return await render_quick_single_sl_prompt(query.message, target_positions, is_edit=True, context=context)
     elif data == "qstop_mode_tp_only":
-        return await render_quick_single_tp_prompt(query.message, target_positions, is_edit=True)
+        return await render_quick_single_tp_prompt(query.message, target_positions, is_edit=True, context=context)
     elif data == "qstop_mode_be":
         # Instant Break-Even
         sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
@@ -538,7 +539,7 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # --- Guided Step-by-Step Flow ---
 
-async def render_quick_guided_sl_prompt(message, positions: list, is_edit: bool = False) -> int:
+async def render_quick_guided_sl_prompt(message, positions: list, is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for Stop Loss price in guided mode."""
     sym = positions[0]["symbol"] if positions else "Pairs"
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
@@ -554,10 +555,24 @@ async def render_quick_guided_sl_prompt(message, positions: list, is_edit: bool 
         f"✍️ *Type the new SL price* (e.g. `{bid * 0.995:.{digits}f}`):\n"
         f"_(Or click Skip below to leave SL unchanged)_"
     )
+    kb = get_quick_guided_sl_keyboard()
     if is_edit and hasattr(message, "edit_text"):
-        await message.edit_text(text, parse_mode="Markdown", reply_markup=get_quick_guided_sl_keyboard())
+        await message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = message.message_id
+    elif context and context.user_data.get("active_card_msg_id"):
+        chat_id = message.chat_id if hasattr(message, "chat_id") else message.chat.id
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=context.user_data["active_card_msg_id"],
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
     else:
-        await message.reply_text(text, parse_mode="Markdown", reply_markup=get_quick_guided_sl_keyboard())
+        msg = await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = msg.message_id
     return WAITING_QUICK_GUIDED_SL
 
 async def cb_quick_guided_sl_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -567,26 +582,53 @@ async def cb_quick_guided_sl_btn(update: Update, context: ContextTypes.DEFAULT_T
     
     choice = query.data # qsl_skip, qsl_clear
     context.user_data["quick_sl"] = 0.0 if choice == "qsl_clear" else None
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = context.user_data.get("b_positions_snapshot", [])
-    return await render_quick_guided_tp_prompt(query.message, positions, context.user_data["quick_sl"], is_edit=True)
+    return await render_quick_guided_tp_prompt(query.message, positions, context.user_data["quick_sl"], is_edit=True, context=context)
 
 async def txt_quick_guided_sl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles typed SL price in guided mode."""
+    # Clean up user's typed message bubble to keep chat 100% clean
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     text = update.message.text.strip()
+    old_card_id = context.user_data.get("active_card_msg_id")
+    chat_id = update.effective_chat.id
+
     try:
         val = float(text)
         if val < 0:
             raise ValueError
         context.user_data["quick_sl"] = val
     except ValueError:
-        await update.message.reply_text("❌ Please enter a valid positive SL price number (e.g. `2735.50`):")
+        err_text = (
+            f"❌ *Invalid SL Price*\n"
+            f"Please enter a valid positive SL price number (e.g. `2735.50`):\n\n"
+            f"👇 *Try again or tap Skip / Cancel:*"
+        )
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text=err_text,
+                    parse_mode="Markdown",
+                    reply_markup=get_quick_guided_sl_keyboard()
+                )
+                return WAITING_QUICK_GUIDED_SL
+            except Exception:
+                pass
+        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_guided_sl_keyboard())
         return WAITING_QUICK_GUIDED_SL
         
     positions = context.user_data.get("b_positions_snapshot", [])
-    return await render_quick_guided_tp_prompt(update.message, positions, val, is_edit=False)
+    return await render_quick_guided_tp_prompt(update.message, positions, val, is_edit=False, context=context)
 
-async def render_quick_guided_tp_prompt(message, positions: list, sl_val: Optional[float], is_edit: bool = False) -> int:
+async def render_quick_guided_tp_prompt(message, positions: list, sl_val: Optional[float], is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for Take Profit price in guided mode."""
     sym = positions[0]["symbol"] if positions else "Pairs"
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
@@ -605,10 +647,24 @@ async def render_quick_guided_tp_prompt(message, positions: list, sl_val: Option
         f"✍️ *Type the new TP price* (e.g. `{ask * 1.005:.{digits}f}`):\n"
         f"_(Or click Skip below to leave TP unchanged)_"
     )
+    kb = get_quick_guided_tp_keyboard()
     if is_edit and hasattr(message, "edit_text"):
-        await message.edit_text(text, parse_mode="Markdown", reply_markup=get_quick_guided_tp_keyboard())
+        await message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = message.message_id
+    elif context and context.user_data.get("active_card_msg_id"):
+        chat_id = message.chat_id if hasattr(message, "chat_id") else message.chat.id
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=context.user_data["active_card_msg_id"],
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
     else:
-        await message.reply_text(text, parse_mode="Markdown", reply_markup=get_quick_guided_tp_keyboard())
+        msg = await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = msg.message_id
     return WAITING_QUICK_GUIDED_TP
 
 async def cb_quick_guided_tp_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -619,6 +675,7 @@ async def cb_quick_guided_tp_btn(update: Update, context: ContextTypes.DEFAULT_T
     choice = query.data # qtp_skip, qtp_clear
     tp_val = 0.0 if choice == "qtp_clear" else None
     sl_val = context.user_data.get("quick_sl")
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
     if not positions:
@@ -633,27 +690,58 @@ async def cb_quick_guided_tp_btn(update: Update, context: ContextTypes.DEFAULT_T
     else:
         target_positions = positions
         
-    sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
-    await query.edit_message_text(f"⚡ *Applying quick stops to {sym_desc}...*", parse_mode="Markdown")
     res_text = await apply_quick_stops_values(target_positions, sl_val, tp_val)
     await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
     return ConversationHandler.END
 
 async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles typed TP price in guided mode and executes immediately."""
+    """Handles typed TP price in guided mode and executes immediately in-place."""
+    # Clean up user's typed message bubble to keep chat 100% clean
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     text = update.message.text.strip()
+    old_card_id = context.user_data.get("active_card_msg_id")
+    chat_id = update.effective_chat.id
+
     try:
         tp_val = float(text)
         if tp_val < 0:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("❌ Please enter a valid positive TP price number (e.g. `2790.00`):")
+        err_text = (
+            f"❌ *Invalid TP Price*\n"
+            f"Please enter a valid positive TP price number (e.g. `2790.00`):\n\n"
+            f"👇 *Try again or tap Skip / Cancel:*"
+        )
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text=err_text,
+                    parse_mode="Markdown",
+                    reply_markup=get_quick_guided_tp_keyboard()
+                )
+                return WAITING_QUICK_GUIDED_TP
+            except Exception:
+                pass
+        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_guided_tp_keyboard())
         return WAITING_QUICK_GUIDED_TP
         
     sl_val = context.user_data.get("quick_sl")
     positions = await asyncio.to_thread(get_active_positions)
     if not positions:
-        await update.message.reply_text("📭 Positions closed before stops were applied.", reply_markup=get_back_keyboard("menu_main"))
+        err_msg = "📭 Positions closed before stops were applied."
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                return ConversationHandler.END
+            except Exception:
+                pass
+        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
@@ -664,15 +752,25 @@ async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         target_positions = positions
         
-    sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
-    await update.message.reply_text(f"⚡ *Applying quick stops to {sym_desc}...*", parse_mode="Markdown")
     res_text = await apply_quick_stops_values(target_positions, sl_val, tp_val)
+    if old_card_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=old_card_id,
+                text=res_text,
+                parse_mode="Markdown",
+                reply_markup=get_back_keyboard("menu_main")
+            )
+            return ConversationHandler.END
+        except Exception:
+            pass
     await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
     return ConversationHandler.END
 
 # --- Single SL-Only / TP-Only Modes ---
 
-async def render_quick_single_sl_prompt(message, positions: list, is_edit: bool = False) -> int:
+async def render_quick_single_sl_prompt(message, positions: list, is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for SL price only."""
     sym = positions[0]["symbol"] if positions else "Pairs"
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
@@ -687,16 +785,31 @@ async def render_quick_single_sl_prompt(message, positions: list, is_edit: bool 
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
         f"✍️ *Type target SL price level* for all positions (e.g. `{bid * 0.995:.{digits}f}`):"
     )
+    kb = get_quick_single_sl_keyboard()
     if is_edit and hasattr(message, "edit_text"):
-        await message.edit_text(text, parse_mode="Markdown", reply_markup=get_quick_single_sl_keyboard())
+        await message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = message.message_id
+    elif context and context.user_data.get("active_card_msg_id"):
+        chat_id = message.chat_id if hasattr(message, "chat_id") else message.chat.id
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=context.user_data["active_card_msg_id"],
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
     else:
-        await message.reply_text(text, parse_mode="Markdown", reply_markup=get_quick_single_sl_keyboard())
+        msg = await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = msg.message_id
     return WAITING_QUICK_ONLY_SL
 
 async def cb_quick_single_sl_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles Clear SL button in SL-only mode."""
     query = update.callback_query
     await query.answer()
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
     if not positions:
@@ -711,26 +824,57 @@ async def cb_quick_single_sl_btn(update: Update, context: ContextTypes.DEFAULT_T
     else:
         target_positions = positions
         
-    sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
-    await query.edit_message_text(f"⚡ *Clearing Stop Loss for {sym_desc}...*", parse_mode="Markdown")
     res_text = await apply_quick_stops_values(target_positions, sl_val=0.0, tp_val=None)
     await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
     return ConversationHandler.END
 
 async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles typed SL price in SL-only mode."""
+    """Handles typed SL price in SL-only mode in-place."""
+    # Clean up user's typed message bubble to keep chat 100% clean
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     text = update.message.text.strip()
+    old_card_id = context.user_data.get("active_card_msg_id")
+    chat_id = update.effective_chat.id
+
     try:
         val = float(text)
         if val < 0:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("❌ Please enter a valid positive SL price (e.g. `2735.00`):")
+        err_text = (
+            f"❌ *Invalid SL Price*\n"
+            f"Please enter a valid positive SL price (e.g. `2735.00`):\n\n"
+            f"👇 *Try again or tap Cancel:*"
+        )
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text=err_text,
+                    parse_mode="Markdown",
+                    reply_markup=get_quick_single_sl_keyboard()
+                )
+                return WAITING_QUICK_ONLY_SL
+            except Exception:
+                pass
+        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_single_sl_keyboard())
         return WAITING_QUICK_ONLY_SL
         
     positions = await asyncio.to_thread(get_active_positions)
     if not positions:
-        await update.message.reply_text("📭 No active positions.", reply_markup=get_back_keyboard("menu_main"))
+        err_msg = "📭 No active positions."
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                return ConversationHandler.END
+            except Exception:
+                pass
+        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
@@ -741,13 +885,23 @@ async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         target_positions = positions
         
-    sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
-    await update.message.reply_text(f"⚡ *Applying Stop Loss to {sym_desc}...*", parse_mode="Markdown")
     res_text = await apply_quick_stops_values(target_positions, sl_val=val, tp_val=None)
+    if old_card_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=old_card_id,
+                text=res_text,
+                parse_mode="Markdown",
+                reply_markup=get_back_keyboard("menu_main")
+            )
+            return ConversationHandler.END
+        except Exception:
+            pass
     await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
     return ConversationHandler.END
 
-async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool = False) -> int:
+async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for TP price only."""
     sym = positions[0]["symbol"] if positions else "Pairs"
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
@@ -762,16 +916,31 @@ async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool 
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
         f"✍️ *Type target TP price level* for all positions (e.g. `{ask * 1.005:.{digits}f}`):"
     )
+    kb = get_quick_single_tp_keyboard()
     if is_edit and hasattr(message, "edit_text"):
-        await message.edit_text(text, parse_mode="Markdown", reply_markup=get_quick_single_tp_keyboard())
+        await message.edit_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = message.message_id
+    elif context and context.user_data.get("active_card_msg_id"):
+        chat_id = message.chat_id if hasattr(message, "chat_id") else message.chat.id
+        await context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=context.user_data["active_card_msg_id"],
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=kb
+        )
     else:
-        await message.reply_text(text, parse_mode="Markdown", reply_markup=get_quick_single_tp_keyboard())
+        msg = await message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+        if context:
+            context.user_data["active_card_msg_id"] = msg.message_id
     return WAITING_QUICK_ONLY_TP
 
 async def cb_quick_single_tp_btn(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handles Clear TP button in TP-only mode."""
     query = update.callback_query
     await query.answer()
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
     if not positions:
@@ -786,26 +955,57 @@ async def cb_quick_single_tp_btn(update: Update, context: ContextTypes.DEFAULT_T
     else:
         target_positions = positions
         
-    sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
-    await query.edit_message_text(f"⚡ *Clearing Take Profit for {sym_desc}...*", parse_mode="Markdown")
     res_text = await apply_quick_stops_values(target_positions, sl_val=None, tp_val=0.0)
     await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
     return ConversationHandler.END
 
 async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handles typed TP price in TP-only mode."""
+    """Handles typed TP price in TP-only mode in-place."""
+    # Clean up user's typed message bubble to keep chat 100% clean
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     text = update.message.text.strip()
+    old_card_id = context.user_data.get("active_card_msg_id")
+    chat_id = update.effective_chat.id
+
     try:
         val = float(text)
         if val < 0:
             raise ValueError
     except ValueError:
-        await update.message.reply_text("❌ Please enter a valid positive TP price (e.g. `2790.00`):")
+        err_text = (
+            f"❌ *Invalid TP Price*\n"
+            f"Please enter a valid positive TP price (e.g. `2790.00`):\n\n"
+            f"👇 *Try again or tap Cancel:*"
+        )
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text=err_text,
+                    parse_mode="Markdown",
+                    reply_markup=get_quick_single_tp_keyboard()
+                )
+                return WAITING_QUICK_ONLY_TP
+            except Exception:
+                pass
+        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=get_quick_single_tp_keyboard())
         return WAITING_QUICK_ONLY_TP
         
     positions = await asyncio.to_thread(get_active_positions)
     if not positions:
-        await update.message.reply_text("📭 No active positions.", reply_markup=get_back_keyboard("menu_main"))
+        err_msg = "📭 No active positions."
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                return ConversationHandler.END
+            except Exception:
+                pass
+        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
@@ -816,32 +1016,83 @@ async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         target_positions = positions
         
-    sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
-    await update.message.reply_text(f"⚡ *Applying Take Profit to {sym_desc}...*", parse_mode="Markdown")
     res_text = await apply_quick_stops_values(target_positions, sl_val=None, tp_val=val)
+    if old_card_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=old_card_id,
+                text=res_text,
+                parse_mode="Markdown",
+                reply_markup=get_back_keyboard("menu_main")
+            )
+            return ConversationHandler.END
+        except Exception:
+            pass
     await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
     return ConversationHandler.END
 
 # --- Direct Chat Input (Fast Mode) ---
 
 async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Processes typed <SL> <TP> or <SL> input directly from dashboard."""
+    """Processes typed <SL> <TP> or <SL> input directly from dashboard in-place."""
+    # Clean up user's typed message bubble to keep chat 100% clean
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
     text = update.message.text.strip()
+    old_card_id = context.user_data.get("active_card_msg_id")
+    chat_id = update.effective_chat.id
     
     positions = await asyncio.to_thread(get_active_positions)
     if not positions:
-        await update.message.reply_text("📭 No active positions found to update.", reply_markup=get_back_keyboard("menu_main"))
+        err_msg = "📭 No active positions found to update."
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                return ConversationHandler.END
+            except Exception:
+                pass
+        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_main"))
         return ConversationHandler.END
         
     target_sym = context.user_data.get("quick_target_symbol", "ALL")
     sl_val, tp_val, target_positions, err = parse_quick_price_input(text, positions, default_symbol=target_sym)
     if err:
-        await update.message.reply_text(err)
+        err_prompt = (
+            f"{err}\n\n"
+            f"👇 *Try again (e.g. `2740.50 2790.00` or `sl 2740.50`):*"
+        )
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text=err_prompt,
+                    parse_mode="Markdown",
+                    reply_markup=get_quick_stops_keyboard(positions, target_sym)
+                )
+                return WAITING_QUICK_STOPS_INPUT
+            except Exception:
+                pass
+        await update.message.reply_text(err_prompt, parse_mode="Markdown", reply_markup=get_quick_stops_keyboard(positions, target_sym))
         return WAITING_QUICK_STOPS_INPUT
         
-    sym_desc = f"`{target_positions[0]['symbol']}`" if len(set(p['symbol'] for p in target_positions)) == 1 else "target positions"
-    await update.message.reply_text(f"⚡ *Applying quick stops to {sym_desc}...*", parse_mode="Markdown")
     res_text = await apply_quick_stops_values(target_positions, sl_val, tp_val)
+    if old_card_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=old_card_id,
+                text=res_text,
+                parse_mode="Markdown",
+                reply_markup=get_back_keyboard("menu_main")
+            )
+            return ConversationHandler.END
+        except Exception:
+            pass
     await update.message.reply_text(
         text=res_text,
         parse_mode="Markdown",
@@ -1074,10 +1325,27 @@ async def cb_cancel_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def cmd_cancel_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Abort quick stops conversation via text command."""
     if update.message:
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        old_card_id = context.user_data.get("active_card_msg_id")
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=update.effective_chat.id,
+                    message_id=old_card_id,
+                    text="❌ *Quick SL/TP operation cancelled.*",
+                    parse_mode="Markdown",
+                    reply_markup=get_back_keyboard("menu_main")
+                )
+                return ConversationHandler.END
+            except Exception:
+                pass
         await update.message.reply_text(
             "❌ *Quick SL/TP operation cancelled.*",
             parse_mode="Markdown",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_back_keyboard("menu_main")
         )
     return ConversationHandler.END
 

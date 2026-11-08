@@ -1,5 +1,6 @@
 import sys
 import asyncio
+import pytest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -162,6 +163,7 @@ def test_quick_price_parser():
     assert "No open positions found" in err
     print("  [OK] Non-existent pair correctly returned user-friendly error.")
 
+@pytest.mark.asyncio
 async def test_compute_portfolio_risk_summary():
     print("\nTesting compute_portfolio_risk_summary_lines...")
     mock_positions = [
@@ -194,6 +196,7 @@ async def test_compute_portfolio_risk_summary():
     assert "🟢 *Total TP Target* · _No open positions_" in empty_lines[2]
     print("  [OK] Empty positions handled gracefully.")
 
+@pytest.mark.asyncio
 async def test_apply_quick_stops():
     print("\nTesting apply_quick_stops_values execution...")
     mock_positions = [
