@@ -90,10 +90,10 @@ def calc_position_sl_tp_pnl(p: dict, sym_info: Optional[dict], is_cent_account: 
     return sl_pnl, tp_pnl
 
 def format_position_short(p: dict, digits: int = 5, sym_info: Optional[dict] = None, is_cent: bool = False) -> str:
-    """Formats a position into a clean, compact summary block with SL/TP risk & reward."""
+    """Formats a position into a clean, modern card block with high readability."""
     pnl_emoji = "🟢" if p["profit"] >= 0 else "🔴"
-    dir_arrow  = "▲" if p["type"] == "BUY" else "▼"
-    pnl_sign   = "+" if p["profit"] >= 0 else ""
+    dir_badge = "🟩 BUY" if p["type"] == "BUY" else "🟥 SELL"
+    pnl_sign  = "+" if p["profit"] >= 0 else ""
 
     sym_upper = p["symbol"].upper()
     if any(x in sym_upper for x in ["XAU", "XAG", "BTC", "US30", "NAS100", "SPX"]):
@@ -104,25 +104,33 @@ def format_position_short(p: dict, digits: int = 5, sym_info: Optional[dict] = N
     if p["sl"] > 0:
         if sl_pnl is not None:
             sign = "+" if sl_pnl >= 0 else ""
-            sl_str = f"`{p['sl']:.{digits}f}` (`{sign}{sl_pnl:,.2f}`)"
+            sl_str = f"`{p['sl']:.{digits}f}` ({sign}{sl_pnl:,.2f})"
         else:
             sl_str = f"`{p['sl']:.{digits}f}`"
     else:
-        sl_str = "_None_"
+        sl_str = "_Not set_"
 
     if p["tp"] > 0:
         if tp_pnl is not None:
             sign = "+" if tp_pnl >= 0 else ""
-            tp_str = f"`{p['tp']:.{digits}f}` (`{sign}{tp_pnl:,.2f}`)"
+            tp_str = f"`{p['tp']:.{digits}f}` ({sign}{tp_pnl:,.2f})"
         else:
             tp_str = f"`{p['tp']:.{digits}f}`"
     else:
-        tp_str = "_None_"
+        tp_str = "_Not set_"
 
-    return (
-        f"🔸 `#{p['ticket']}` *{p['symbol']}* {dir_arrow} `{p['volume']:.2f}L` {pnl_emoji} `{pnl_sign}{p['profit']:,.2f}`\n"
-        f"   🔴 SL {sl_str}  🟢 TP {tp_str}"
-    )
+    lines = [
+        f"🔸 *{p['symbol']}* · {dir_badge} `{p['volume']:.2f}L` · {pnl_emoji} `{pnl_sign}{p['profit']:,.2f}`",
+        f"   🎫 `#{p['ticket']}` · Entry `{p['price_open']:.{digits}f}`"
+    ]
+
+    if p["sl"] > 0 or p["tp"] > 0:
+        lines.append(f"   🔴 SL: {sl_str}")
+        lines.append(f"   🟢 TP: {tp_str}")
+    else:
+        lines.append("   🛡️ Stops: _Not set_")
+
+    return "\n".join(lines)
 
 def format_position_detail(p: dict, digits: int = 5) -> str:
     """Formats a position into a detailed markdown card."""
@@ -204,6 +212,7 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
             sym_map[s] = info
 
     summary_lines = ["💼 *Active Positions*", "━━━━━━━━━━"]
+    pos_blocks = []
     total_pnl = 0.0
     total_sl_pnl = 0.0
     total_tp_pnl = 0.0
@@ -232,7 +241,7 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
             if tp_pnl is not None:
                 total_tp_pnl += tp_pnl
 
-        summary_lines.append(format_position_short(pos, digits=digits, sym_info=s_info, is_cent=is_cent))
+        pos_blocks.append(format_position_short(pos, digits=digits, sym_info=s_info, is_cent=is_cent))
 
         btn_text = f"⚙️ #{pos['ticket']} {pos['symbol']}"
         btn = InlineKeyboardButton(btn_text, callback_data=f"pos_view_{pos['ticket']}")
@@ -244,6 +253,9 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if current_row:
         keyboard_buttons.append(current_row)
+
+    if pos_blocks:
+        summary_lines.append("\n\n".join(pos_blocks))
 
     pnl_emoji = "🟢" if total_pnl >= 0 else "🔴"
     pnl_sign  = "+" if total_pnl >= 0 else ""
