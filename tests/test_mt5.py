@@ -1,11 +1,9 @@
 import sys
-import os
 from pathlib import Path
 
 # Add project root to path to resolve config imports
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-import MetaTrader5 as mt5
 from config import settings
 from mt5.connector import initialize_mt5, shutdown_mt5
 from mt5.monitor import get_account_details, get_symbol_info

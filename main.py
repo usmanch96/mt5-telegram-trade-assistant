@@ -6,6 +6,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 from database.db_manager import init_db
 from mt5.connector import initialize_mt5, shutdown_mt5
+from mt5.discovery import select_terminal_interactive
 from bot.main import run_bot_polling
 from services.logger import logger
 
@@ -30,9 +31,9 @@ def main():
         logger.error(f"Critical error initializing database: {e}")
         sys.exit(1)
         
-    # 2. Connect to MetaTrader 5
-    # Note: On local testing, ensure the MT5 terminal is open and logged in.
-    mt5_success = initialize_mt5()
+    # 2. Interactive Terminal Selection & MT5 Connection
+    chosen_terminal = select_terminal_interactive()
+    mt5_success = initialize_mt5(path=chosen_terminal)
     if not mt5_success:
         logger.warning(
             "Failed to initialize MT5 connection on startup. "

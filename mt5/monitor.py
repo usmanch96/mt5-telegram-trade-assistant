@@ -46,7 +46,6 @@ def get_active_positions(symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         return []
         
     try:
-        # Retrieve positions
         if symbol:
             raw_positions = mt5.positions_get(symbol=symbol.upper())
         else:
@@ -60,7 +59,6 @@ def get_active_positions(symbol: Optional[str] = None) -> List[Dict[str, Any]]:
             
         positions = []
         for pos in raw_positions:
-            # type: 0 = Buy, 1 = Sell
             pos_type = "BUY" if pos.type == mt5.POSITION_TYPE_BUY else "SELL"
             positions.append({
                 "ticket": pos.ticket,
@@ -90,19 +88,31 @@ def get_symbol_info(symbol: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        candidates = [symbol]
-        if symbol.upper() != symbol:
-            candidates.append(symbol.upper())
-        if symbol.upper().endswith("C"):
-            candidates.append(symbol.upper()[:-1] + "c")
+        sym_clean = symbol.strip()
+        base = sym_clean.upper()
+        candidates_raw = [
+            sym_clean,
+            base,
+            base + "c",    # Cent account (Exness, etc.)
+            base + "m",    # Micro / Mini account
+            base + ".r",   # Raw spread account
+            base + "r",
+            base + ".a",
+            base + "pro",
+            base + "_i",
+        ]
+        if base.endswith("C"):
+            candidates_raw.append(base[:-1] + "c")
+        if base.endswith("M"):
+            candidates_raw.append(base[:-1] + "m")
+
+        candidates = list(dict.fromkeys(candidates_raw))
 
         info = None
-        target_sym = None
         for candidate in candidates:
             if mt5.symbol_select(candidate, True):
                 info = mt5.symbol_info(candidate)
                 if info is not None:
-                    target_sym = candidate
                     break
 
         if info is None:
@@ -125,56 +135,3 @@ def get_symbol_info(symbol: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Exception getting symbol info for {symbol}: {e}")
         return None
-
-
-def get_active_orders(symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-    """
-    Retrieves all currently active pending orders (limit and stop orders).
-    Optionally filters by a specific symbol.
-    """
-    if not check_connection():
-        logger.error("Cannot retrieve pending orders: MT5 not connected.")
-        return []
-        
-    try:
-        if symbol:
-            raw_orders = mt5.orders_get(symbol=symbol.upper())
-        else:
-            raw_orders = mt5.orders_get()
-            
-        if raw_orders is None:
-            err = mt5.last_error()
-            if err[0] != 1:  # 1 means no orders found (not an error)
-                logger.error(f"Failed to get active pending orders. Error: {err}")
-            return []
-            
-        orders = []
-        for ord in raw_orders:
-            ord_type_str = "PENDING"
-            if ord.type == mt5.ORDER_TYPE_BUY_LIMIT:
-                ord_type_str = "BUY_LIMIT"
-            elif ord.type == mt5.ORDER_TYPE_SELL_LIMIT:
-                ord_type_str = "SELL_LIMIT"
-            elif ord.type == mt5.ORDER_TYPE_BUY_STOP:
-                ord_type_str = "BUY_STOP"
-            elif ord.type == mt5.ORDER_TYPE_SELL_STOP:
-                ord_type_str = "SELL_STOP"
-                
-            orders.append({
-                "ticket": ord.ticket,
-                "symbol": ord.symbol,
-                "volume": ord.volume_initial,
-                "type": ord_type_str,
-                "price_open": ord.price_open,
-                "price_current": ord.price_current,
-                "sl": ord.sl,
-                "tp": ord.tp,
-                "profit": 0.0,
-                "comment": ord.comment,
-                "time": ord.time_setup
-            })
-        return orders
-    except Exception as e:
-        logger.error(f"Exception while getting active pending orders: {e}")
-        return []
-

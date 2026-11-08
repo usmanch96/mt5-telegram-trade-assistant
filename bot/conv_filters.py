@@ -10,16 +10,13 @@ from telegram.ext import filters
 # All persistent reply-keyboard button labels (must match keyboards.py exactly)
 _MENU_BUTTON_REGEX = (
     r"^("
-    r"📊 Dashboard"
+    r"📊 Account Status"
+    r"|📊 Dashboard"
     r"|💼 Active Positions"
-    r"|🚀 Open Trade"
-    r"|🥞 Layering Trade"
-    r"|⚡ Batch Controls"
-    r"|🔔 Price Alerts"
-    r"|🧮 Risk Calculator"
+    r"|⚡ Quick SL/TP"
+    r"|⚡ Quick Batch SL/TP"
     r"|🔄 Refresh Status"
     r")$"
-
 )
 
 # Use this instead of `filters.TEXT & ~filters.COMMAND` inside conversation states

@@ -34,7 +34,8 @@ except ValueError:
 
 MT5_PASSWORD = os.getenv("MT5_PASSWORD", "")
 MT5_SERVER = os.getenv("MT5_SERVER", "")
-MT5_PATH = os.getenv("MT5_PATH", None)
+raw_path = os.getenv("MT5_PATH", "").strip()
+MT5_PATH = raw_path if raw_path else None
 
 # Database and Logging
 DB_PATH = str(BASE_DIR / os.getenv("DB_PATH", "database/trading_bot.db"))
@@ -47,6 +48,5 @@ def is_config_valid() -> bool:
         return False
     if not AUTHORIZED_USERS:
         return False
-    if MT5_LOGIN == 0 or not MT5_PASSWORD or not MT5_SERVER:
-        return False
+    # MT5 credentials are now optional; terminals can be selected automatically
     return True

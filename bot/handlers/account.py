@@ -1,11 +1,11 @@
 import asyncio
-from telegram import Update
+from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 from mt5.monitor import get_account_details
 from database.models import authorize_user, revoke_user
-from bot.keyboards import get_main_keyboard, get_back_keyboard, get_persistent_menu_keyboard
+from config import settings
+from bot.keyboards import get_main_keyboard
 from bot.middleware import restricted
-from services.logger import logger
 
 # MT5 account trade mode constants
 _TRADE_MODE_LABELS = {0: "Demo", 1: "Contest", 2: "Real"}
@@ -16,7 +16,7 @@ def _margin_bar(level: float) -> str:
     return "🟩" * filled + "⬜" * (10 - filled)
 
 def format_account_info(acc: dict) -> str:
-    """Formats MT5 account information dictionary into a rich Markdown string."""
+    """Formats MT5 account information dictionary into a rich Markdown status card."""
     profit_emoji = "🟢" if acc["profit"] >= 0 else "🔴"
     profit_sign  = "+" if acc["profit"] >= 0 else ""
 
@@ -24,7 +24,7 @@ def format_account_info(acc: dict) -> str:
 
     no_trades = acc["margin_level"] == 0
     if no_trades:
-        margin_section = f"🛡️ Margin Level · ℹ️ No open trades\n"
+        margin_section = "🛡️ Margin Level · ℹ️ No open trades\n"
     elif acc["margin_level"] < 200:
         margin_section = (
             f"🛡️ Margin Level · `{acc['margin_level']:,.0f}%` 🚨 CRITICAL\n"
@@ -56,109 +56,111 @@ def format_account_info(acc: dict) -> str:
         f"{margin_section}"
     )
 
-_WELCOME_TEXT = (
-    "🤖 *MT5 Trade Assistant*\n"
-    "━━━━━━━━━━━━━━━━━━━━\n"
-    "Your professional Telegram trading terminal.\n\n"
-    "📊 Account status  •  💼 Open positions\n"
-    "🚀 Execute trades  •  🥞 Layer entries\n"
-    "⚡ Batch controls  •  🔔 Price alerts\n"
-    "━━━━━━━━━━━━━━━━━━━━\n"
-    "👇 Select an option to get started:"
-)
+def _get_offline_account_text() -> str:
+    """Fallback text displayed when MT5 terminal is unreachable."""
+    return (
+        "📊 *Account Status*\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "⚠️ *Connection Pending / Terminal Offline*\n"
+        "Could not retrieve live account data from MT5.\n"
+        "Please check that your terminal is open and logged in.\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👇 Tap Refresh Status to retry:"
+    )
+
+async def render_account_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Unified renderer that displays or updates the live Account Status card in place."""
+    acc_details = await asyncio.to_thread(get_account_details)
+    text = format_account_info(acc_details) if acc_details else _get_offline_account_text()
+    reply_markup = get_main_keyboard()
+    chat_id = update.effective_chat.id
+
+    # 1. Triggered from an inline button (CallbackQuery)
+    if update.callback_query:
+        query = update.callback_query
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        try:
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+            context.user_data["active_card_msg_id"] = query.message.message_id
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                raise
+        return
+
+    # 2. Triggered from text message (Bottom Menu button or /start, /status, /menu)
+    if update.message:
+        # Delete user's command message so chat doesn't get cluttered
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+
+        # Try to edit the existing card on screen in place!
+        old_card_id = context.user_data.get("active_card_msg_id")
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text=text,
+                    parse_mode="Markdown",
+                    reply_markup=reply_markup
+                )
+                return  # Updated in place cleanly!
+            except Exception as e:
+                if "message is not modified" in str(e).lower():
+                    return
+                # If old card no longer exists, fall through to create a new one
+
+        # Remove any lingering bottom reply keyboard from user's screen
+        if not context.user_data.get("keyboard_removed"):
+            try:
+                rm = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="⚡",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                await context.bot.delete_message(chat_id=chat_id, message_id=rm.message_id)
+                context.user_data["keyboard_removed"] = True
+            except Exception:
+                pass
+
+        # Send fresh card and track its ID
+        msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+        context.user_data["active_card_msg_id"] = msg.message_id
 
 @restricted
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the /start or /menu command, sending the main menu with a live account snapshot."""
-    if update.message:
-        # Silently load the persistent bottom reply keyboard
-        await update.message.reply_text(
-            text="✅ *Bot keyboard ready.* Use the buttons below or the inline menu above.",
-            reply_markup=get_persistent_menu_keyboard(),
-            parse_mode="Markdown"
-        )
-
-        # Try to fetch live account info for the welcome card
-        acc = await asyncio.to_thread(get_account_details)
-        if acc:
-            profit_emoji = "🟢" if acc["profit"] >= 0 else "🔴"
-            profit_sign  = "+" if acc["profit"] >= 0 else ""
-            snapshot = (
-                f"🤖 *MT5 Trade Assistant*\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"👤 `{acc['login']}` · {acc['name']}\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"💰 Balance · `{acc['balance']:,.2f} {acc['currency']}`\n"
-                f"📈 Equity · `{acc['equity']:,.2f} {acc['currency']}`\n"
-                f"{profit_emoji} Float PnL · `{profit_sign}{acc['profit']:,.2f} {acc['currency']}`\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"👇 Select an option:"
-            )
-        else:
-            snapshot = _WELCOME_TEXT
-
-        await update.message.reply_text(
-            text=snapshot,
-            parse_mode="Markdown",
-            reply_markup=get_main_keyboard()
-        )
-    else:
-        query = update.callback_query
-        await query.answer()
-        await query.edit_message_text(
-            text=_WELCOME_TEXT,
-            parse_mode="Markdown",
-            reply_markup=get_main_keyboard()
-        )
+    """Handles /start, /menu, /account, /dashboard, sending or updating the unified Account Status screen."""
+    await render_account_dashboard(update, context)
 
 @restricted
 async def cb_account_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback query handler to display the account status."""
-    query = update.callback_query
-    await query.answer()
-
-    await query.edit_message_text(
-        text="🔄 _Querying MT5 terminal..._",
-        parse_mode="Markdown"
-    )
-
-    acc_details = await asyncio.to_thread(get_account_details)
-
-    if not acc_details:
-        await query.edit_message_text(
-            text=(
-                "❌ *Connection Failed*\n"
-                "━━━━━━━━━━━━━━━━━━━━\n"
-                "Could not retrieve account data from MT5.\n"
-                "Please ensure the terminal is running and logged in."
-            ),
-            parse_mode="Markdown",
-            reply_markup=get_back_keyboard()
-        )
-        return
-
-    await query.edit_message_text(
-        text=format_account_info(acc_details),
-        parse_mode="Markdown",
-        reply_markup=get_back_keyboard()
-    )
+    """Refreshes or displays the unified Account Status screen in place."""
+    await render_account_dashboard(update, context)
 
 @restricted
 async def cb_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Callback query handler to return back to the main menu."""
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        text=_WELCOME_TEXT,
-        parse_mode="Markdown",
-        reply_markup=get_main_keyboard()
-    )
-
+    """Callback query handler to return back to the unified Account Status screen in place."""
+    await render_account_dashboard(update, context)
 
 @restricted
 async def cmd_authorize_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Authorizes a new user ID in the whitelist (Restricted to whitelisted admins)."""
+    """Authorizes a new user ID in the whitelist (Restricted to Super Admins)."""
     if not update.message:
+        return
+
+    caller_id = update.effective_user.id
+    if caller_id not in settings.AUTHORIZED_USERS:
+        await update.message.reply_text("❌ Only Super Admins (.env configured) can authorize new users.")
         return
         
     args = context.args
@@ -191,8 +193,13 @@ async def cmd_authorize_user(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 @restricted
 async def cmd_revoke_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Revokes access for a whitelisted user ID (Restricted to whitelisted admins)."""
+    """Revokes access for a whitelisted user ID (Restricted to Super Admins)."""
     if not update.message:
+        return
+
+    caller_id = update.effective_user.id
+    if caller_id not in settings.AUTHORIZED_USERS:
+        await update.message.reply_text("❌ Only Super Admins (.env configured) can revoke user access.")
         return
         
     args = context.args
@@ -211,6 +218,10 @@ async def cmd_revoke_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     if target_id == update.effective_user.id:
         await update.message.reply_text("❌ You cannot revoke your own admin access.")
+        return
+
+    if target_id in settings.AUTHORIZED_USERS:
+        await update.message.reply_text("❌ Cannot revoke a Super Admin listed in .env configuration.")
         return
         
     success = await asyncio.to_thread(revoke_user, target_id)

@@ -53,7 +53,6 @@ def log_trade_request(request: dict):
     sl_desc = f"SL: {sl:.5f}" if sl > 0 else "SL: None"
     tp_desc = f"TP: {tp:.5f}" if tp > 0 else "TP: None"
     
-    # Standardize decimals for indices/commodities/gold/bitcoin
     if any(x in symbol for x in ["JPY", "XAU", "BTC", "US30", "NAS100"]):
         sl_desc = f"SL: {sl:.2f}" if sl > 0 else "SL: None"
         tp_desc = f"TP: {tp:.2f}" if tp > 0 else "TP: None"
@@ -63,79 +62,10 @@ def log_trade_request(request: dict):
         
     action = request.get("action")
     if action == mt5.TRADE_ACTION_DEAL:
-        ot = "BUY" if request.get("type") == mt5.ORDER_TYPE_BUY else "SELL"
-        # If it has a position ID, it's a close position deal
         if request.get("position") is not None:
             logger.info(f"MT5 Exec: Close Position #{request.get('position')} {vol:.2f} {symbol} {price_desc}")
-        else:
-            logger.info(f"MT5 Exec: Market {ot} {vol:.2f} {symbol} {price_desc} ({sl_desc}, {tp_desc})")
-        
-    elif action == mt5.TRADE_ACTION_PENDING:
-        ot = "BUY LIMIT" if request.get("type") == mt5.ORDER_TYPE_BUY_LIMIT else "SELL LIMIT"
-        logger.info(f"MT5 Exec: Pending {ot} {vol:.2f} {symbol} {price_desc} ({sl_desc}, {tp_desc})")
-        
     elif action == mt5.TRADE_ACTION_SLTP:
         logger.info(f"MT5 Exec: Modify Stops ticket #{request.get('position')} ({sl_desc}, {tp_desc})")
-        
-    elif action == mt5.TRADE_ACTION_REMOVE:
-        logger.info(f"MT5 Exec: Cancel Pending Order #{request.get('order')}")
-
-def send_market_order(
-    symbol: str, 
-    direction: str, 
-    volume: float, 
-    sl: float = 0.0, 
-    tp: float = 0.0, 
-    comment: str = ""
-) -> Dict[str, Any]:
-    """
-    Sends a market deal order (BUY or SELL).
-    """
-    if not check_connection():
-        return {"success": False, "message": "MT5 terminal disconnected."}
-        
-    symbol_upper = symbol.upper()
-    sym_info = mt5.symbol_info(symbol_upper)
-    if not sym_info:
-        return {"success": False, "message": f"Symbol {symbol_upper} not found."}
-        
-    # Get current price
-    tick = mt5.symbol_info_tick(symbol_upper)
-    if not tick:
-        return {"success": False, "message": "Failed to get current tick price."}
-        
-    order_type = mt5.ORDER_TYPE_BUY if direction.upper() == "BUY" else mt5.ORDER_TYPE_SELL
-    price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
-    filling_mode = get_filling_mode(symbol_upper)
-    
-    request = {
-        "action": mt5.TRADE_ACTION_DEAL,
-        "symbol": symbol_upper,
-        "volume": float(volume),
-        "type": order_type,
-        "price": float(price),
-        "sl": float(sl) if sl > 0 else 0.0,
-        "tp": float(tp) if tp > 0 else 0.0,
-        "deviation": 50,
-        "magic": 991122, # Bot magic number
-        "comment": comment,
-        "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": filling_mode,
-    }
-    
-    log_trade_request(request)
-    result = mt5.order_send(request)
-    
-    if result is None:
-        return {"success": False, "message": f"Order execution timed out or failed. Error: {mt5.last_error()}"}
-        
-    if result.retcode != mt5.TRADE_RETCODE_DONE:
-        err_msg = translate_error_code(result.retcode)
-        logger.error(f"Order failed. Retcode: {result.retcode}. Request: {request}. Result: {result.comment}")
-        return {"success": False, "message": f"{err_msg} ({result.comment})"}
-        
-    logger.info(f"Market order filled successfully. Ticket: {result.order}")
-    return {"success": True, "ticket": result.order, "message": "Order filled successfully."}
 
 def close_position(ticket: int, volume_to_close: Optional[float] = None) -> Dict[str, Any]:
     """
@@ -144,7 +74,6 @@ def close_position(ticket: int, volume_to_close: Optional[float] = None) -> Dict
     if not check_connection():
         return {"success": False, "message": "MT5 terminal disconnected."}
         
-    # Get the position details
     position = mt5.positions_get(ticket=ticket)
     if not position or len(position) == 0:
         return {"success": False, "message": f"Position ticket #{ticket} not found."}
@@ -153,10 +82,13 @@ def close_position(ticket: int, volume_to_close: Optional[float] = None) -> Dict
     symbol = pos.symbol
     current_volume = pos.volume
     
-    # Calculate closing volume
     close_vol = float(volume_to_close) if volume_to_close else current_volume
     if close_vol > current_volume:
         return {"success": False, "message": f"Cannot close {close_vol} lots. Position size is only {current_volume} lots."}
+
+    sym_info = mt5.symbol_info(symbol)
+    if sym_info and sym_info.volume_step > 0:
+        close_vol = min(current_volume, max(sym_info.volume_min, round(round(close_vol / sym_info.volume_step) * sym_info.volume_step, 2)))
         
     tick = mt5.symbol_info_tick(symbol)
     if not tick:
@@ -206,24 +138,22 @@ def modify_position_stops(ticket: int, sl: float, tp: float) -> Dict[str, Any]:
     if not check_connection():
         return {"success": False, "message": "MT5 terminal disconnected."}
         
-    # Get the position details
     position = mt5.positions_get(ticket=ticket)
     if not position or len(position) == 0:
         return {"success": False, "message": f"Position ticket #{ticket} not found."}
         
     pos = position[0]
     
-    # Fetch tick and symbol info to validate Stops Level limits and decimals
     tick = mt5.symbol_info_tick(pos.symbol)
     sym_info = mt5.symbol_info(pos.symbol)
     
+    digits = 5
     if sym_info:
         digits = sym_info.digits
         point = sym_info.point
         stops_level = sym_info.trade_stops_level
         min_distance = stops_level * point
         
-        # Normalize double precision format
         sl = round(float(sl), digits) if sl > 0 else 0.0
         tp = round(float(tp), digits) if tp > 0 else 0.0
         
@@ -266,6 +196,7 @@ def modify_position_stops(ticket: int, sl: float, tp: float) -> Dict[str, Any]:
                             f"TP ({tp:.{digits}f}) is too close to Ask ({current_price:.{digits}f})."
                         )
                         return {"success": False, "message": "Stops Level violation: TP is too close to Ask."}
+
     # Check if target SL & TP already match current position parameters
     curr_sl = round(float(pos.sl), digits) if (sym_info and pos.sl > 0) else float(pos.sl)
     curr_tp = round(float(pos.tp), digits) if (sym_info and pos.tp > 0) else float(pos.tp)
@@ -298,79 +229,3 @@ def modify_position_stops(ticket: int, sl: float, tp: float) -> Dict[str, Any]:
         return {"success": False, "message": f"{err_msg} ({result.comment})"}
         
     return {"success": True, "message": f"Modified SL/TP parameters for ticket #{ticket}."}
-
-def send_pending_order(
-    symbol: str,
-    direction: str,  # BUY_LIMIT or SELL_LIMIT
-    volume: float,
-    price: float,
-    sl: float = 0.0,
-    tp: float = 0.0,
-    comment: str = "TG Bot Layer"
-) -> Dict[str, Any]:
-    """
-    Sends a pending limit order (BUY_LIMIT or SELL_LIMIT).
-    """
-    if not check_connection():
-        return {"success": False, "message": "MT5 terminal disconnected."}
-        
-    symbol_upper = symbol.upper()
-    sym_info = mt5.symbol_info(symbol_upper)
-    if not sym_info:
-        return {"success": False, "message": f"Symbol {symbol_upper} not found."}
-        
-    order_type = mt5.ORDER_TYPE_BUY_LIMIT if direction.upper() == "BUY_LIMIT" else mt5.ORDER_TYPE_SELL_LIMIT
-    filling_mode = get_filling_mode(symbol_upper)
-    
-    request = {
-        "action": mt5.TRADE_ACTION_PENDING,
-        "symbol": symbol_upper,
-        "volume": float(volume),
-        "type": order_type,
-        "price": float(price),
-        "sl": float(sl) if sl > 0 else 0.0,
-        "tp": float(tp) if tp > 0 else 0.0,
-        "deviation": 50,
-        "magic": 991122,
-        "comment": comment,
-        "type_time": mt5.ORDER_TIME_GTC,
-        "type_filling": filling_mode,
-    }
-    
-    log_trade_request(request)
-    result = mt5.order_send(request)
-    
-    if result is None:
-        return {"success": False, "message": f"Order execution timed out or failed. Error: {mt5.last_error()}"}
-        
-    if result.retcode != mt5.TRADE_RETCODE_DONE:
-        err_msg = translate_error_code(result.retcode)
-        logger.error(f"Pending order failed. Retcode: {result.retcode}. Result: {result.comment} ({err_msg})")
-        return {"success": False, "message": f"Execution failed: {result.comment} ({err_msg})"}
-        
-    return {"success": True, "ticket": result.order, "message": "Pending order placed successfully."}
-
-def cancel_pending_order(ticket: int) -> Dict[str, Any]:
-    """
-    Cancels/Removes an active pending limit order.
-    """
-    if not check_connection():
-        return {"success": False, "message": "MT5 terminal disconnected."}
-        
-    request = {
-        "action": mt5.TRADE_ACTION_REMOVE,
-        "order": int(ticket),
-    }
-    
-    log_trade_request(request)
-    result = mt5.order_send(request)
-    
-    if result is None:
-        return {"success": False, "message": f"Order removal timed out or failed. Error: {mt5.last_error()}"}
-        
-    if result.retcode != mt5.TRADE_RETCODE_DONE:
-        err_msg = translate_error_code(result.retcode)
-        logger.error(f"Pending order cancellation failed. Retcode: {result.retcode}. Result: {result.comment}")
-        return {"success": False, "message": f"Cancellation failed: {result.comment} ({err_msg})"}
-        
-    return {"success": True, "message": "Pending order cancelled successfully."}

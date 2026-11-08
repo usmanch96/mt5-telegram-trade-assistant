@@ -1,5 +1,5 @@
 import asyncio
-from typing import Optional, Dict, Any, List
+from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 
 from telegram.ext import (
@@ -10,21 +10,20 @@ from telegram.ext import (
     CallbackQueryHandler,
     filters,
 )
+import MetaTrader5 as mt5
 from mt5.monitor import get_active_positions, get_symbol_info, get_account_details
 from mt5.executor import close_position, modify_position_stops
-from database.models import add_trailing_stop, remove_trailing_stop
+from mt5.risk_calculator import get_symbol_pip_size
 from bot.keyboards import (
     get_back_keyboard, 
     get_position_control_keyboard,
-    get_stops_adjustment_keyboard,
-    get_preset_trail_keyboard
+    get_stops_adjustment_keyboard
 )
 from bot.middleware import restricted
 from bot.conv_filters import NOT_MENU_BUTTON
-from services.logger import logger
 
 # States for the Position Modifications Conversation
-WAITING_STOPS, WAITING_TRAIL = range(2)
+WAITING_STOPS = 0
 
 def format_price(price: float, symbol: str) -> str:
     """Formats a price float with proper symbol decimals without blocking."""
@@ -96,7 +95,6 @@ def format_position_short(p: dict, digits: int = 5, sym_info: Optional[dict] = N
     dir_arrow  = "▲" if p["type"] == "BUY" else "▼"
     pnl_sign   = "+" if p["profit"] >= 0 else ""
 
-    # Clean decimal precision for Gold, Commodities, Crypto, Indices
     sym_upper = p["symbol"].upper()
     if any(x in sym_upper for x in ["XAU", "XAG", "BTC", "US30", "NAS100", "SPX"]):
         digits = min(digits, 2)
@@ -135,7 +133,7 @@ def format_position_detail(p: dict, digits: int = 5) -> str:
     pnl_sign   = "+" if p["profit"] >= 0 else ""
 
     return (
-        f"💼 *Position \u00b7 #{p['ticket']}*\n"
+        f"💼 *Position · #{p['ticket']}*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔣 *Symbol* · `{p['symbol']}`\n"
         f"{dir_emoji} *Direction* · `{p['type']}`  ·  *Lots* `{p['volume']:.2f}`\n"
@@ -154,9 +152,7 @@ def format_position_detail(p: dict, digits: int = 5) -> str:
 async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Displays a list of all active trade positions with selection buttons."""
     query = update.callback_query
-
     is_message = update.message is not None
-    msg_obj = update.message if is_message else query.message
 
     if query:
         await query.answer()
@@ -169,11 +165,39 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
             "━━━━━━━━━━━━━━━━━━━━\n"
             "📭 No open positions on this account."
         )
-        if is_message:
-            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=get_back_keyboard())
-        else:
-            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_back_keyboard())
-        return
+        markup = get_back_keyboard("menu_main")
+        if query:
+            try:
+                await query.edit_message_text(text, parse_mode="Markdown", reply_markup=markup)
+                context.user_data["active_card_msg_id"] = query.message.message_id
+            except Exception as e:
+                if "message is not modified" not in str(e).lower():
+                    raise
+            return
+
+        if update.message:
+            try:
+                await update.message.delete()
+            except Exception:
+                pass
+            chat_id = update.effective_chat.id
+            old_card_id = context.user_data.get("active_card_msg_id")
+            if old_card_id:
+                try:
+                    await context.bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=old_card_id,
+                        text=text,
+                        parse_mode="Markdown",
+                        reply_markup=markup
+                    )
+                    return
+                except Exception as e:
+                    if "message is not modified" in str(e).lower():
+                        return
+            msg = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=markup)
+            context.user_data["active_card_msg_id"] = msg.message_id
+            return
 
     # Fetch account info to check for Cent accounts
     acc = await asyncio.to_thread(get_account_details)
@@ -258,18 +282,46 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     keyboard_buttons.append([InlineKeyboardButton("⬅️ Main Menu", callback_data="menu_main")])
 
-    if is_message:
-        await update.message.reply_text(
+    if query:
+        try:
+            await query.edit_message_text(
+                text="\n".join(summary_lines),
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard_buttons)
+            )
+            context.user_data["active_card_msg_id"] = query.message.message_id
+        except Exception as e:
+            if "message is not modified" not in str(e).lower():
+                raise
+        return
+
+    if update.message:
+        try:
+            await update.message.delete()
+        except Exception:
+            pass
+        chat_id = update.effective_chat.id
+        old_card_id = context.user_data.get("active_card_msg_id")
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=old_card_id,
+                    text="\n".join(summary_lines),
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard_buttons)
+                )
+                return
+            except Exception as e:
+                if "message is not modified" in str(e).lower():
+                    return
+        msg = await context.bot.send_message(
+            chat_id=chat_id,
             text="\n".join(summary_lines),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard_buttons)
         )
-    else:
-        await query.edit_message_text(
-            text="\n".join(summary_lines),
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard_buttons)
-        )
+        context.user_data["active_card_msg_id"] = msg.message_id
 
 @restricted
 async def cb_view_position(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,7 +349,6 @@ async def cb_view_position(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Fetch symbol info for correct decimal precision
     sym_info = await asyncio.to_thread(get_symbol_info, target_pos["symbol"])
     digits = sym_info["digits"] if sym_info else 5
 
@@ -321,19 +372,17 @@ async def cb_close_position_action(update: Update, context: ContextTypes.DEFAULT
     res = await asyncio.to_thread(close_position, ticket)
     
     if res["success"]:
-        await asyncio.to_thread(remove_trailing_stop, ticket)
         await query.edit_message_text(f"✅ *Position closed successfully!*\n{res['message']}", parse_mode="Markdown", reply_markup=get_back_keyboard("menu_trades"))
     else:
         await query.edit_message_text(f"❌ *Failed to close position.*\n{res['message']}", parse_mode="Markdown", reply_markup=get_back_keyboard("menu_trades"))
 
 @restricted
 async def cb_be_position_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Moves Stop Loss to entry price (Break-Even)."""
+    """Moves Stop Loss to entry price (Break-Even) with safety distance validation."""
     query = update.callback_query
     await query.answer()
     
     ticket = int(query.data.split("_")[2])
-    await query.edit_message_text(f"⚡ *Moving stop to Break-Even for ticket #{ticket}...*", parse_mode="Markdown")
     
     positions = await asyncio.to_thread(get_active_positions)
     pos = next((p for p in positions if p["ticket"] == ticket), None)
@@ -344,13 +393,64 @@ async def cb_be_position_action(update: Update, context: ContextTypes.DEFAULT_TY
         
     entry = pos["price_open"]
     tp = pos["tp"]
+    direction = pos["type"]
+    current_price = pos["price_current"]
+    symbol = pos["symbol"]
     
+    sym_info = await asyncio.to_thread(get_symbol_info, symbol)
+    digits = sym_info["digits"] if sym_info else 5
+    point = sym_info["point"] if sym_info else 0.00001
+    
+    tick = await asyncio.to_thread(mt5.symbol_info_tick, symbol)
+    stops_level = sym_info.get("trade_stops_level", 0) if sym_info else 0
+    min_dist = max(stops_level * point, 5 * point)
+    
+    if direction == "BUY":
+        bid_price = tick.bid if tick else current_price
+        if bid_price <= entry + min_dist:
+            await query.edit_message_text(
+                f"⚠️ *Cannot move to Break-Even yet.*\n\n"
+                f"Position `#{ticket}` (`{symbol}`) is not in sufficient profit.\n"
+                f"• Entry: `{entry:.{digits}f}`\n"
+                f"• Current Bid: `{bid_price:.{digits}f}`\n"
+                f"• Required Min Bid: `>{entry + min_dist:.{digits}f}`\n\n"
+                f"Wait for price to advance further before moving to BE.",
+                parse_mode="Markdown",
+                reply_markup=get_back_keyboard("menu_trades")
+            )
+            return
+    else:  # SELL
+        ask_price = tick.ask if tick else current_price
+        if ask_price >= entry - min_dist:
+            await query.edit_message_text(
+                f"⚠️ *Cannot move to Break-Even yet.*\n\n"
+                f"Position `#{ticket}` (`{symbol}`) is not in sufficient profit.\n"
+                f"• Entry: `{entry:.{digits}f}`\n"
+                f"• Current Ask: `{ask_price:.{digits}f}`\n"
+                f"• Required Max Ask: `<{entry - min_dist:.{digits}f}`\n\n"
+                f"Wait for price to advance further before moving to BE.",
+                parse_mode="Markdown",
+                reply_markup=get_back_keyboard("menu_trades")
+            )
+            return
+            
+    await query.edit_message_text(f"⚡ *Moving stop to Break-Even for ticket #{ticket}...*", parse_mode="Markdown")
     res = await asyncio.to_thread(modify_position_stops, ticket, sl=entry, tp=tp)
     
     if res["success"]:
-        await query.edit_message_text(f"🛡️ *Stop Loss moved to Break-Even!*\nSL set to `{entry:.5f}`.", parse_mode="Markdown", reply_markup=get_back_keyboard("menu_trades"))
+        await query.edit_message_text(
+            f"🛡️ *Stop Loss moved to Break-Even!*\n\n"
+            f"🎫 `#{ticket}` · *{symbol}*\n"
+            f"SL set to entry `{entry:.{digits}f}`.",
+            parse_mode="Markdown",
+            reply_markup=get_back_keyboard("menu_trades")
+        )
     else:
-        await query.edit_message_text(f"❌ *Failed to adjust Stop Loss.*\n{res['message']}", parse_mode="Markdown", reply_markup=get_back_keyboard("menu_trades"))
+        await query.edit_message_text(
+            f"❌ *Failed to adjust Stop Loss.*\n{res['message']}",
+            parse_mode="Markdown",
+            reply_markup=get_back_keyboard("menu_trades")
+        )
 
 @restricted
 async def cb_partial_close_options(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -359,6 +459,25 @@ async def cb_partial_close_options(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
     
     ticket = int(query.data.split("_")[2])
+
+    positions = await asyncio.to_thread(get_active_positions)
+    pos = next((p for p in positions if p["ticket"] == ticket), None)
+    if not pos:
+        await query.edit_message_text(f"❌ Position `#{ticket}` was already closed.", reply_markup=get_back_keyboard("menu_trades"))
+        return
+
+    sym_info = await asyncio.to_thread(get_symbol_info, pos["symbol"])
+    v_min = sym_info["volume_min"] if sym_info else 0.01
+
+    if pos["volume"] <= v_min:
+        await query.edit_message_text(
+            f"⚠️ *Partial close not available.*\n\n"
+            f"Position `#{ticket}` volume is `{pos['volume']:.2f}` lots, which is the broker's minimum contract size (`{v_min}` lots) and cannot be subdivided.\n\n"
+            f"To exit this position, use **Close Trade** to close the full position.",
+            parse_mode="Markdown",
+            reply_markup=get_back_keyboard(f"pos_view_{ticket}")
+        )
+        return
     
     keyboard = [
         [
@@ -372,7 +491,7 @@ async def cb_partial_close_options(update: Update, context: ContextTypes.DEFAULT
     ]
     
     await query.edit_message_text(
-        text=f"🥞 *Partial Close Position #{ticket}*\nChoose volume percentage to close:",
+        text=f"🥞 *Partial Close Position #{ticket}* ({pos['symbol']} · `{pos['volume']:.2f}` Lots)\nChoose volume percentage to close:",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
@@ -411,15 +530,22 @@ async def cb_partial_close_execute(update: Update, context: ContextTypes.DEFAULT
     close_vol = max(volume_min, round(raw_vol / volume_step) * volume_step)
     close_vol = round(close_vol, 2)
     
+    rem_vol = round(current_vol - close_vol, 2)
+    if 0 < rem_vol < volume_min:
+        close_vol = round(current_vol - volume_min, 2)
+        if close_vol < volume_min:
+            await query.edit_message_text(
+                f"❌ Cannot close partially: Remaining volume would be less than broker minimum ({volume_min} lots).",
+                reply_markup=get_back_keyboard(f"pos_view_{ticket}")
+            )
+            return
+
     if close_vol >= current_vol:
         close_vol = current_vol
         
     res = await asyncio.to_thread(close_position, ticket, close_vol)
     
     if res["success"]:
-        if close_vol == current_vol:
-            await asyncio.to_thread(remove_trailing_stop, ticket)
-            
         await query.edit_message_text(
             text=f"🥞 *Partial Close Completed!*\n\nClosed `{close_vol:.2f}` lots of ticket `#{ticket}`. Remaining volume: `{current_vol - close_vol:.2f}` lots.",
             parse_mode="Markdown",
@@ -486,7 +612,6 @@ async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_
     current_sl = pos["sl"]
     current_tp = pos["tp"]
     
-    # Custom redirect
     if action == "custom":
         context.user_data["edit_ticket"] = ticket
         await query.edit_message_text(
@@ -499,38 +624,23 @@ async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_
             ),
             parse_mode="Markdown"
         )
-        # We manually transition their state in the conversation handler
-        # Since this callback is inside the modification wizard, we return state
-        # Wait, since this is a general callback handler, returning won't affect it unless it is the entry point
-        # Let's start the ConversationHandler directly by telling the bot to start listening.
-        # Actually, our get_position_modification_handler entry point can capture this!
-        # The entry point pattern matches r"^pos_edit_\d+$". Wait, this pattern is pos_adj_\d+_custom.
-        # Let's make sure the entry point supports pos_adj_\d+_custom too! That's a perfect solution.
         return
         
-    # Get symbol properties
     sym_info = await asyncio.to_thread(get_symbol_info, symbol)
     if not sym_info:
         await query.edit_message_text("❌ Failed to query symbol information.", reply_markup=get_back_keyboard("menu_trades"))
         return
         
     digits = sym_info["digits"]
-    point = sym_info["point"]
-    tick_size = sym_info["trade_tick_size"]
+    pip_size = get_symbol_pip_size(symbol, sym_info)
     
-    is_forex = (digits == 3 or digits == 5) and ("USD" in symbol or "EUR" in symbol or "GBP" in symbol or "JPY" in symbol or "AUD" in symbol or "CAD" in symbol or "NZD" in symbol or "CHF" in symbol)
-    pip_size = 10 * point if is_forex else 10 * tick_size
-    
-    # Apply logic: Positive shifts stops in profitable direction (+ pips), Negative shifts stops in risk direction (- pips)
     if target == "sl":
         new_tp = current_tp
         if action == "clear":
             new_sl = 0.0
         else:
             pips = float(action)
-            # Use current SL if exists, else use entry price as baseline
             sl_base = current_sl if current_sl > 0 else entry
-            # Profitable SL direction: BUY shifts SL UP (+), SELL shifts SL DOWN (-)
             offset = pips * pip_size
             new_sl = sl_base + offset if direction == "BUY" else sl_base - offset
             new_sl = round(new_sl, digits)
@@ -541,18 +651,14 @@ async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_
             new_tp = 0.0
         else:
             pips = float(action)
-            # Use current TP if exists, else entry price
             tp_base = current_tp if current_tp > 0 else entry
-            # Profitable TP direction: BUY shifts TP UP (+), SELL shifts TP DOWN (-)
             offset = pips * pip_size
             new_tp = tp_base + offset if direction == "BUY" else tp_base - offset
             new_tp = round(new_tp, digits)
             
-    # Send transaction
     res = await asyncio.to_thread(modify_position_stops, ticket, new_sl, new_tp)
     
     if res["success"]:
-        # Re-fetch pos to display updated menu
         positions = await asyncio.to_thread(get_active_positions)
         updated_pos = next((p for p in positions if p["ticket"] == ticket), None)
         
@@ -579,230 +685,155 @@ async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_
             reply_markup=get_stops_adjustment_keyboard(ticket)
         )
 
-# --- Trailing Stop Adjustment menus ---
-
-@restricted
-async def cb_trailing_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays the trailing stop preset selection screen."""
-    query = update.callback_query
-    await query.answer()
-    
-    ticket = int(query.data.split("_")[3])
-    
-    await query.edit_message_text(
-        text=(
-            f"📈 *Set Trailing Stop for Ticket #{ticket}*\n\n"
-            f"Choose a preset trailing distance in standard pips, or click Custom to type:\n"
-            f"_(The bot will trail the SL automatically once the position goes positive)_"
-        ),
-        parse_mode="Markdown",
-        reply_markup=get_preset_trail_keyboard(ticket)
-    )
-
-@restricted
-async def cb_trailing_preset_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Saves trailing stop configurations directly from preset button clicks."""
-    query = update.callback_query
-    await query.answer()
-    
-    parts = query.data.split("_")
-    ticket = int(parts[2])
-    pips = float(parts[3])
-    
-    positions = await asyncio.to_thread(get_active_positions)
-    pos = next((p for p in positions if p["ticket"] == ticket), None)
-    
-    if not pos:
-        await query.edit_message_text("❌ Position no longer active.", reply_markup=get_back_keyboard("menu_trades"))
-        return
-        
-    if pips == 0:
-        await asyncio.to_thread(remove_trailing_stop, ticket)
-        await query.edit_message_text(
-            text=f"⏹️ Trailing stop deactivated for ticket `#{ticket}`.",
-            parse_mode="Markdown",
-            reply_markup=get_back_keyboard("menu_trades")
-        )
-    else:
-        min_profit_pips = pips
-        await asyncio.to_thread(add_trailing_stop, ticket, pos["symbol"], pips, min_profit_pips)
-        await query.edit_message_text(
-            text=(
-                f"📈 *Trailing Stop Set successfully!*\n\n"
-                f"🎫 *Ticket:* `#{ticket}` ({pos['symbol']})\n"
-                f"📐 *Distance:* `{pips} Pips`\n"
-                f"🛡️ *Activation Profit:* `{min_profit_pips} Pips` in profit\n\n"
-                f"Trailing stop will be managed in the background."
-            ),
-            parse_mode="Markdown",
-            reply_markup=get_back_keyboard("menu_trades")
-        )
-
 # --- Stateful wizard text inputs overrides ---
 
 @restricted
 async def start_edit_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Triggered by Custom stops button. Starts text prompt flow."""
+    """Triggered by Custom stops button. Starts smart price entry prompt flow."""
     query = update.callback_query
     await query.answer()
     
     ticket = int(query.data.split("_")[2])
     context.user_data["edit_ticket"] = ticket
+    context.user_data["active_card_msg_id"] = query.message.message_id
     
-    await query.edit_message_text(
-        text=(
-            f"✏️ *Custom Stops for Ticket #{ticket}*\n\n"
-            f"Please type the new Stop Loss (SL) and Take Profit (TP) prices separated by a space.\n"
-            f"Example: `2420.50 2480.00`\n\n"
-            f"• Enter `0` to clear a stop (e.g. `0 2480.00` to set TP only).\n"
-            f"• Write `/cancel` to abort."
-        ),
-        parse_mode="Markdown"
-    )
-    return WAITING_STOPS
-
-async def txt_edit_stops_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Processes custom typed SL/TP with direction validation checks."""
-    text = update.message.text.strip()
-    ticket = context.user_data.get("edit_ticket")
-    
-    parts = text.split()
-    if len(parts) != 2:
-        await update.message.reply_text("❌ Invalid format. Please enter two prices separated by a space (e.g. `2415.00 2490.50`):")
-        return WAITING_STOPS
-        
-    try:
-        sl = float(parts[0])
-        tp = float(parts[1])
-        if sl < 0 or tp < 0:
-            raise ValueError()
-    except ValueError:
-        await update.message.reply_text("❌ Valid positive numbers required. Try again (e.g. `2415.00 2490.50` or `0 0` to clear):")
-        return WAITING_STOPS
-        
-    # Get active position details to run validations
     positions = await asyncio.to_thread(get_active_positions)
     pos = next((p for p in positions if p["ticket"] == ticket), None)
-    
     if not pos:
-        await update.message.reply_text("❌ Position no longer active.", reply_markup=get_back_keyboard("menu_trades"))
+        await query.edit_message_text(
+            text=f"❌ Position `#{ticket}` is no longer active.",
+            reply_markup=get_back_keyboard("menu_trades")
+        )
         return ConversationHandler.END
         
     symbol = pos["symbol"]
-    direction = pos["type"] # BUY or SELL
-    current_price = pos["price_current"]
+    sym_info = await asyncio.to_thread(get_symbol_info, symbol)
+    digits = sym_info["digits"] if sym_info else 5
+    curr = pos["price_current"]
+    sl_curr = f"`{pos['sl']:.{digits}f}`" if pos["sl"] > 0 else "_None_"
+    tp_curr = f"`{pos['tp']:.{digits}f}`" if pos["tp"] > 0 else "_None_"
     
-    # 1. Validate Stop Loss direction
-    if sl > 0:
-        if direction == "BUY" and sl >= current_price:
-            await update.message.reply_text(
-                f"❌ *Invalid BUY Stop Loss.*\n"
-                f"The Stop Loss price (`{sl}`) must be **below** the current market price (`{current_price}`).\n"
-                f"Please enter the prices again:",
-                parse_mode="Markdown"
-            )
-            return WAITING_STOPS
-        elif direction == "SELL" and sl <= current_price:
-            await update.message.reply_text(
-                f"❌ *Invalid SELL Stop Loss.*\n"
-                f"The Stop Loss price (`{sl}`) must be **above** the current market price (`{current_price}`).\n"
-                f"Please enter the prices again:",
-                parse_mode="Markdown"
-            )
-            return WAITING_STOPS
-            
-    # 2. Validate Take Profit direction
-    if tp > 0:
-        if direction == "BUY" and tp <= current_price:
-            await update.message.reply_text(
-                f"❌ *Invalid BUY Take Profit.*\n"
-                f"The Take Profit price (`{tp}`) must be **above** the current market price (`{current_price}`).\n"
-                f"Please enter the prices again:",
-                parse_mode="Markdown"
-            )
-            return WAITING_STOPS
-        elif direction == "SELL" and tp >= current_price:
-            await update.message.reply_text(
-                f"❌ *Invalid SELL Take Profit.*\n"
-                f"The Take Profit price (`{tp}`) must be **below** the current market price (`{current_price}`).\n"
-                f"Please enter the prices again:",
-                parse_mode="Markdown"
-            )
-            return WAITING_STOPS
-            
-    await update.message.reply_text(f"⚡ *Modifying stops for ticket #{ticket}...*")
-    res = await asyncio.to_thread(modify_position_stops, ticket, sl, tp)
-    
-    if res["success"]:
-        # If the trailing stop exists, but we cleared SL, we should clean database
-        if sl == 0:
-            await asyncio.to_thread(remove_trailing_stop, ticket)
-            
-        sl_desc = f"`{sl}`" if sl > 0 else "_None_"
-        tp_desc = f"`{tp}`" if tp > 0 else "_None_"
-        await update.message.reply_text(
-            f"✅ *Stops modified successfully!*\nNew SL: {sl_desc}\nNew TP: {tp_desc}",
-            parse_mode="Markdown",
-            reply_markup=get_back_keyboard("menu_trades")
-        )
-    else:
-        await update.message.reply_text(
-            f"❌ *Failed to modify stops.*\n{res['message']}",
-            parse_mode="Markdown",
-            reply_markup=get_back_keyboard("menu_trades")
-        )
-    return ConversationHandler.END
-
-@restricted
-async def start_trailing_stop_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Triggered by Custom trailing stop button. Starts text prompt flow."""
-    query = update.callback_query
-    await query.answer()
-    
-    ticket = int(query.data.split("_")[2])
-    context.user_data["trail_ticket"] = ticket
-    
-    await query.edit_message_text(
-        text=(
-            f"📈 *Custom Trailing Stop for Ticket #{ticket}*\n\n"
-            f"Please type the custom trailing stop distance in standard pips (e.g. `35`):\n"
-            f"• Write `/cancel` to abort."
-        ),
-        parse_mode="Markdown"
+    text = (
+        f"✏️ *Smart Stops for Ticket #{ticket}* · `{symbol}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📊 *Type:* `{pos['type']}` {pos['volume']} lots\n"
+        f"🎯 *Current Market:* `{curr:.{digits}f}`\n"
+        f"🔴 *Current SL:* {sl_curr}\n"
+        f"🟢 *Current TP:* {tp_curr}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"✍️ *Quick Type & Send (Fastest):*\n"
+        f"• Both: `2740.50 2790.00` (auto-aligned)\n"
+        f"• SL only: `2740.50` or `sl 2740.50`\n"
+        f"• TP only: `2790.00` or `tp 2790.00`\n"
+        f"• Clear stops: `0` to remove\n\n"
+        f"👇 _Send your price above, or tap Cancel:_"
     )
-    return WAITING_TRAIL
-
-async def txt_trailing_stop_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Saves custom trailing stops."""
-    text = update.message.text.strip()
-    ticket = context.user_data.get("trail_ticket")
     
+    cancel_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Cancel", callback_data=f"pos_view_{ticket}")]
+    ])
+    
+    await query.edit_message_text(text=text, parse_mode="Markdown", reply_markup=cancel_kb)
+    return WAITING_STOPS
+
+async def txt_edit_stops_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Processes smart typed SL/TP with auto-ordering, risk calculation, and in-place feedback."""
+    from bot.handlers.batch import parse_quick_price_input
+
+    text = update.message.text.strip()
+    ticket = context.user_data.get("edit_ticket")
+    chat_id = update.effective_chat.id
+    old_card_id = context.user_data.get("active_card_msg_id")
+
+    # Clean up user's typed message bubble to keep chat 100% clean
     try:
-        pips = float(text)
-        if pips < 0:
-            raise ValueError()
-    except ValueError:
-        await update.message.reply_text("❌ Please enter a positive number of pips (e.g. `35.5`):")
-        return WAITING_TRAIL
-        
+        await update.message.delete()
+    except Exception:
+        pass
+
     positions = await asyncio.to_thread(get_active_positions)
     pos = next((p for p in positions if p["ticket"] == ticket), None)
-    
     if not pos:
-        await update.message.reply_text("❌ Position no longer active.", reply_markup=get_back_keyboard("menu_trades"))
+        err_msg = "❌ Position no longer active."
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_trades"))
+                return ConversationHandler.END
+            except Exception:
+                pass
+        await update.message.reply_text(err_msg, reply_markup=get_back_keyboard("menu_trades"))
         return ConversationHandler.END
-        
-    if pips == 0:
-        await asyncio.to_thread(remove_trailing_stop, ticket)
-        await update.message.reply_text(f"⏹️ Trailing stop deactivated.", reply_markup=get_back_keyboard("menu_trades"))
-    else:
-        min_profit_pips = pips
-        await asyncio.to_thread(add_trailing_stop, ticket, pos["symbol"], pips, min_profit_pips)
-        await update.message.reply_text(
-            f"📈 *Trailing Stop Set successfully!*\n\n🎫 *Ticket:* `#{ticket}`\n📐 *Distance:* `{pips} Pips`",
-            parse_mode="Markdown",
-            reply_markup=get_back_keyboard("menu_trades")
+
+    sl_val, tp_val, _, err = parse_quick_price_input(text, [pos])
+    if err:
+        prompt_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Cancel", callback_data=f"pos_view_{ticket}")]
+        ])
+        err_text = f"{err}\n\n👇 *Try again (e.g. `2740 2790` or `sl 2740`):*"
+        if old_card_id:
+            try:
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_text, parse_mode="Markdown", reply_markup=prompt_kb)
+                return WAITING_STOPS
+            except Exception:
+                pass
+        await update.message.reply_text(err_text, parse_mode="Markdown", reply_markup=prompt_kb)
+        return WAITING_STOPS
+
+    final_sl = sl_val if sl_val is not None else pos["sl"]
+    final_tp = tp_val if tp_val is not None else pos["tp"]
+
+    # Execute stops modification
+    res = await asyncio.to_thread(modify_position_stops, ticket, final_sl, final_tp)
+    
+    # Calculate fresh risk metrics for feedback
+    updated_pos = dict(pos)
+    updated_pos["sl"] = final_sl
+    updated_pos["tp"] = final_tp
+    sym_info = await asyncio.to_thread(get_symbol_info, pos["symbol"])
+    digits = sym_info["digits"] if sym_info else 5
+    sl_pnl, tp_pnl = calc_position_sl_tp_pnl(updated_pos, sym_info)
+
+    sl_sign = "+" if (sl_pnl or 0) > 0 else ""
+    tp_sign = "+" if (tp_pnl or 0) > 0 else ""
+    sl_str = f"`{final_sl:.{digits}f}` ({sl_sign}{sl_pnl:,.2f})" if (final_sl > 0 and sl_pnl is not None) else (f"`{final_sl:.{digits}f}`" if final_sl > 0 else "_None_")
+    tp_str = f"`{final_tp:.{digits}f}` ({tp_sign}{tp_pnl:,.2f})" if (final_tp > 0 and tp_pnl is not None) else (f"`{final_tp:.{digits}f}`" if final_tp > 0 else "_None_")
+
+    done_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✏️ Adjust More", callback_data=f"pos_edit_menu_{ticket}")],
+        [InlineKeyboardButton("⬅️ Back to Positions", callback_data="menu_trades")]
+    ])
+
+    if res["success"]:
+        res_text = (
+            f"✅ *Stops Updated Successfully!*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎫 *Ticket:* `#{ticket}` · *{pos['symbol']}*\n"
+            f"🔴 *Stop Loss:* {sl_str}\n"
+            f"🟢 *Take Profit:* {tp_str}\n"
+            f"━━━━━━━━━━━━━━━━━━━━"
         )
+    else:
+        res_text = f"❌ *Failed to modify stops.*\n{res['message']}"
+
+    if old_card_id:
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=old_card_id,
+                text=res_text,
+                parse_mode="Markdown",
+                reply_markup=done_kb
+            )
+            return ConversationHandler.END
+        except Exception:
+            pass
+
+    await update.message.reply_text(res_text, parse_mode="Markdown", reply_markup=done_kb)
+    return ConversationHandler.END
+
+async def cb_cancel_to_view(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Cancels text input and returns directly to position view card."""
+    await cb_view_position(update, context)
     return ConversationHandler.END
 
 async def cb_cancel_modification(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -823,19 +854,16 @@ def get_position_modification_handler():
     """Returns the ConversationHandler configuration for custom text modifications overrides."""
     return ConversationHandler(
         entry_points=[
-            CallbackQueryHandler(start_edit_stops, pattern=r"^pos_adj_\d+_custom$"),
-            CallbackQueryHandler(start_trailing_stop_wizard, pattern=r"^trail_custom_\d+$")
+            CallbackQueryHandler(start_edit_stops, pattern=r"^pos_adj_\d+_custom$")
         ],
         states={
             WAITING_STOPS: [
                 MessageHandler(NOT_MENU_BUTTON, txt_edit_stops_input)
-            ],
-            WAITING_TRAIL: [
-                MessageHandler(NOT_MENU_BUTTON, txt_trailing_stop_input)
             ]
         },
         fallbacks=[
             CommandHandler("cancel", cmd_cancel_modification),
+            CallbackQueryHandler(cb_cancel_to_view, pattern=r"^pos_view_\d+$"),
             CallbackQueryHandler(cb_cancel_modification, pattern="^menu_trades$")
         ],
         allow_reentry=True
