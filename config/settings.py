@@ -40,6 +40,19 @@ MT5_PATH = raw_path if raw_path else None
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FILE = str(BASE_DIR / "logs" / "app.log")
 
+# Sound Alerts (Option 3: Local PC Speaker)
+SOUND_ALERTS_ENABLED = os.getenv("SOUND_ALERTS_ENABLED", "true").lower() in ("true", "1", "yes")
+SOUND_ALERT_MODE = os.getenv("SOUND_ALERT_MODE", "both").lower()  # 'both', 'chime', 'voice'
+raw_sounds_dir = os.getenv("MT5_SOUNDS_DIR", "").strip()
+MT5_SOUNDS_DIR = raw_sounds_dir if raw_sounds_dir else None
+
+# Background Deal Watcher (Monitors TP/SL hits and external broker executions)
+DEAL_WATCHER_ENABLED = os.getenv("DEAL_WATCHER_ENABLED", "true").lower() in ("true", "1", "yes")
+try:
+    DEAL_WATCHER_INTERVAL = float(os.getenv("DEAL_WATCHER_INTERVAL", "1.5"))
+except ValueError:
+    DEAL_WATCHER_INTERVAL = 1.5
+
 def is_config_valid() -> bool:
     """Checks if essential configurations are populated."""
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "your_bot_token_here":

@@ -141,3 +141,34 @@ async def cb_account_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Callback query handler to return back to the unified Account Status screen in place."""
     await render_account_dashboard(update, context)
+
+@restricted
+async def cmd_sound_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Plays a test chime & voice alert on the local PC speaker to verify audio setup."""
+    from services.sound import play_sound, get_sounds_dir
+    from bot.keyboards import get_back_keyboard
+    
+    sounds_dir = get_sounds_dir()
+    play_sound("TEST")
+
+    mode_desc = {
+        "both": "🔊 Chime + Voice Announcement",
+        "chime": "🔔 Chime Only (WAV)",
+        "voice": "🗣️ Voice Announcement Only",
+    }.get(settings.SOUND_ALERT_MODE, settings.SOUND_ALERT_MODE.title())
+
+    dir_desc = f"`{sounds_dir}`" if sounds_dir else "⚠️ System Default Chime"
+
+    text = (
+        "🔊 *PC Sound Alert Test*\n"
+        "━━━━━━━━━━\n"
+        f"• Status: {'✅ Active' if settings.SOUND_ALERTS_ENABLED else '❌ Disabled'}\n"
+        f"• Mode: {mode_desc}\n"
+        f"• Sounds Directory: {dir_desc}\n\n"
+        "▶️ _Playing test audio on your PC speaker now!_"
+    )
+    if update.message:
+        await update.message.reply_text(text, parse_mode="Markdown")
+    elif update.callback_query:
+        await update.callback_query.answer("Played test sound alert to PC!")
+        await update.callback_query.edit_message_text(text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))

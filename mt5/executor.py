@@ -129,9 +129,21 @@ def close_position(ticket: int, volume_to_close: Optional[float] = None) -> Dict
         logger.error(f"Close failed. Retcode: {result.retcode}. Result: {result.comment}")
         return {"success": False, "message": f"{err_msg} ({result.comment})"}
         
+    # Audio Alert & Duplicate Suppression Hook
+    try:
+        from services.deal_watcher import record_bot_action
+        from services.sound import play_sound
+        record_bot_action(ticket, "CLOSE")
+        if volume_to_close and float(volume_to_close) < current_volume:
+            play_sound("PARTIAL_CLOSED")
+        else:
+            play_sound("ORDER_CLOSED")
+    except Exception as e:
+        logger.debug(f"Audio/watcher hook error on close: {e}")
+
     return {"success": True, "message": f"Closed {close_vol} lots of ticket #{ticket}."}
 
-def modify_position_stops(ticket: int, sl: float, tp: float) -> Dict[str, Any]:
+def modify_position_stops(ticket: int, sl: float, tp: float, sound_event: Optional[str] = None) -> Dict[str, Any]:
     """
     Modifies SL and TP parameters of an active position.
     """
@@ -228,4 +240,10 @@ def modify_position_stops(ticket: int, sl: float, tp: float) -> Dict[str, Any]:
         logger.error(f"Modify stops failed. Retcode: {result.retcode}. Result: {result.comment}")
         return {"success": False, "message": f"{err_msg} ({result.comment})"}
         
+    try:
+        from services.sound import play_sound
+        play_sound(sound_event or "STOPS_MODIFIED")
+    except Exception as e:
+        logger.debug(f"Audio hook error on modify stops: {e}")
+
     return {"success": True, "message": f"Modified SL/TP parameters for ticket #{ticket}."}

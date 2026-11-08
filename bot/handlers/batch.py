@@ -549,7 +549,7 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
                 skipped += 1
                 continue
                 
-            res = await asyncio.to_thread(modify_position_stops, pos["ticket"], sl=entry, tp=pos["tp"])
+            res = await asyncio.to_thread(modify_position_stops, pos["ticket"], sl=entry, tp=pos["tp"], sound_event="BREAK_EVEN")
             if res["success"]:
                 success += 1
                 

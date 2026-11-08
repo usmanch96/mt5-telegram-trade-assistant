@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram.request import HTTPXRequest
 from config import settings
-from bot.handlers.account import cmd_start, cb_main_menu
+from bot.handlers.account import cmd_start, cb_main_menu, cmd_sound_test
 from bot.handlers.positions import (
     cb_active_positions,
     cb_view_position,
@@ -50,6 +50,7 @@ def build_bot_app():
     app.add_handler(CommandHandler(["start", "menu", "account", "status", "dashboard"], cmd_start))
     app.add_handler(CommandHandler(["quickstops", "faststops"], cmd_quick_stops))
     app.add_handler(CommandHandler(["positions", "trades"], cb_active_positions))
+    app.add_handler(CommandHandler(["sound", "testsound", "soundtest", "audio"], cmd_sound_test))
     
     # Callback Handlers (Unified Navigation & Refresh)
     app.add_handler(CallbackQueryHandler(cb_main_menu, pattern=r"^(menu_main|menu_account|menu_refresh)$"))
@@ -67,6 +68,17 @@ def build_bot_app():
 
     # Noop handler for decorative buttons
     app.add_handler(CallbackQueryHandler(cb_noop, pattern="^noop$"))
+
+    # Register Background MT5 Deal Watcher (Monitors broker TP/SL executions & fills)
+    if settings.DEAL_WATCHER_ENABLED:
+        from services.deal_watcher import poll_deals_job
+        app.job_queue.run_repeating(
+            poll_deals_job,
+            interval=settings.DEAL_WATCHER_INTERVAL,
+            first=2.0,
+            name="mt5_deal_watcher"
+        )
+        logger.info(f"Background MT5 Deal Watcher enabled (polling every {settings.DEAL_WATCHER_INTERVAL}s).")
     
     logger.info("Telegram Bot application successfully configured.")
     return app

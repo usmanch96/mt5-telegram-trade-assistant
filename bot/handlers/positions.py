@@ -426,7 +426,7 @@ async def cb_be_position_action(update: Update, context: ContextTypes.DEFAULT_TY
             return
             
     await query.edit_message_text(f"⚡ *Moving stop to Break-Even for ticket #{ticket}...*", parse_mode="Markdown")
-    res = await asyncio.to_thread(modify_position_stops, ticket, sl=entry, tp=tp)
+    res = await asyncio.to_thread(modify_position_stops, ticket, sl=entry, tp=tp, sound_event="BREAK_EVEN")
     
     if res["success"]:
         await query.edit_message_text(

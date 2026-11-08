@@ -56,6 +56,13 @@ Designed specifically for traders who need instantaneous monitoring and fast sto
 - Automatically scans running and installed MT5 terminals (`terminal64.exe`) across standard and custom broker directories
 - Prompts you at startup to choose which terminal/account to connect to, or `[0] ❌ Quit / Exit`
 
+### 5. 🔊 Authentic PC Audio Alerts & Deal Watcher
+- **Local PC/Laptop Speaker Alerts**: Plays authentic MT5 chimes (`ok.wav`, `stops.wav`, `alert2.wav`) along with crystal-clear voice announcements (*"Order filled"*, *"Position closed"*, *"Take profit hit"*, *"Stop loss hit"*).
+- **Background MT5 Deal Watcher**: Automatically detects when the broker triggers a Take Profit or Stop Loss in the background, plays the corresponding sound, and broadcasts a rich notification card to Telegram with realized P&L.
+- **Bot Action Hooks**: Immediate sound feedback on button clicks (close trade, partial close, break-even, quick stops).
+- **Test Command**: Run `/sound` or `/testsound` in Telegram to test your speaker output anytime.
+
+
 ---
 
 ## 🏗️ Architecture
