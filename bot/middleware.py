@@ -1,12 +1,12 @@
 from functools import wraps
 from telegram import Update
 from telegram.ext import ContextTypes
-from database.models import is_user_authorized
+from config import settings
 from services.logger import logger
 
 def restricted(func):
     """
-    Decorator that restricts handler access to whitelisted Telegram User IDs.
+    Decorator that restricts handler access to whitelisted Telegram User IDs configured in .env.
     Works for both message handlers and callback queries (inline buttons).
     """
     @wraps(func)
@@ -18,8 +18,8 @@ def restricted(func):
             
         user_id = user.id
         
-        # Check authorization
-        if not is_user_authorized(user_id):
+        # Check authorization directly from settings.AUTHORIZED_USERS (.env memory set)
+        if user_id not in settings.AUTHORIZED_USERS:
             username = user.username or "Unknown"
             logger.warning(f"Unauthorized access attempt by ID: {user_id} (@{username})")
             

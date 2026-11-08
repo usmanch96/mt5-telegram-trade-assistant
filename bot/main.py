@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram.request import HTTPXRequest
 from config import settings
-from bot.handlers.account import cmd_start, cb_main_menu, cmd_authorize_user, cmd_revoke_user
+from bot.handlers.account import cmd_start, cb_main_menu
 from bot.handlers.positions import (
     cb_active_positions,
     cb_view_position,
@@ -52,8 +52,6 @@ def build_bot_app():
     # Unified Account Status / Dashboard Commands
     app.add_handler(CommandHandler(["start", "menu", "account", "status", "dashboard"], cmd_start))
     app.add_handler(CommandHandler(["quickstops", "faststops"], cmd_quick_stops))
-    app.add_handler(CommandHandler("authorize", cmd_authorize_user))
-    app.add_handler(CommandHandler("revoke", cmd_revoke_user))
     
     # Callback Handlers (Unified Navigation & Refresh)
     app.add_handler(CallbackQueryHandler(cb_main_menu, pattern=r"^(menu_main|menu_account|menu_refresh)$"))

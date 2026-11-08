@@ -66,8 +66,7 @@ graph TD
     TG_API <-->|Long Polling| BotMain[Python Bot Engine]
 
     subgraph Local Python Backend
-        BotMain --> Auth[🛡️ Auth Middleware]
-        Auth --> DB[(SQLite Database)]
+        BotMain --> Auth[🛡️ Auth Middleware (.env Whitelist)]
         BotMain --> Handlers[Clean Handlers]
         Handlers -->|Account| H_Acc[📊 Account Status]
         Handlers -->|Positions| H_Pos[💼 Active Positions]

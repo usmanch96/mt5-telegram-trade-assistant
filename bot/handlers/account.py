@@ -2,7 +2,6 @@ import asyncio
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 from mt5.monitor import get_account_details
-from database.models import authorize_user, revoke_user
 from config import settings
 from bot.keyboards import get_main_keyboard
 from bot.middleware import restricted
@@ -151,86 +150,3 @@ async def cb_account_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cb_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Callback query handler to return back to the unified Account Status screen in place."""
     await render_account_dashboard(update, context)
-
-@restricted
-async def cmd_authorize_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Authorizes a new user ID in the whitelist (Restricted to Super Admins)."""
-    if not update.message:
-        return
-
-    caller_id = update.effective_user.id
-    if caller_id not in settings.AUTHORIZED_USERS:
-        await update.message.reply_text("❌ Only Super Admins (.env configured) can authorize new users.")
-        return
-        
-    args = context.args
-    if not args:
-        await update.message.reply_text(
-            "✍️ *Usage:* `/authorize <user_id> [username]`\nExample: `/authorize 123456789 JohnDoe`",
-            parse_mode="Markdown"
-        )
-        return
-        
-    try:
-        target_id = int(args[0])
-    except ValueError:
-        await update.message.reply_text("❌ User ID must be a number.")
-        return
-        
-    username = args[1] if len(args) > 1 else "ChatUser"
-    
-    success = await asyncio.to_thread(authorize_user, target_id, username)
-    if success:
-        await update.message.reply_text(
-            f"✅ *User Whitelisted successfully!*\n\n"
-            f"👤 *ID:* `{target_id}`\n"
-            f"🏷️ *Username:* `{username}`\n\n"
-            f"They can now access the bot via `/start`.",
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text(f"ℹ️ User `{target_id}` is already whitelisted or failed to save.")
-
-@restricted
-async def cmd_revoke_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Revokes access for a whitelisted user ID (Restricted to Super Admins)."""
-    if not update.message:
-        return
-
-    caller_id = update.effective_user.id
-    if caller_id not in settings.AUTHORIZED_USERS:
-        await update.message.reply_text("❌ Only Super Admins (.env configured) can revoke user access.")
-        return
-        
-    args = context.args
-    if not args:
-        await update.message.reply_text(
-            "✍️ *Usage:* `/revoke <user_id>`\nExample: `/revoke 123456789`",
-            parse_mode="Markdown"
-        )
-        return
-        
-    try:
-        target_id = int(args[0])
-    except ValueError:
-        await update.message.reply_text("❌ User ID must be a number.")
-        return
-        
-    if target_id == update.effective_user.id:
-        await update.message.reply_text("❌ You cannot revoke your own admin access.")
-        return
-
-    if target_id in settings.AUTHORIZED_USERS:
-        await update.message.reply_text("❌ Cannot revoke a Super Admin listed in .env configuration.")
-        return
-        
-    success = await asyncio.to_thread(revoke_user, target_id)
-    if success:
-        await update.message.reply_text(
-            f"🚫 *Access Revoked successfully!*\n\n"
-            f"👤 *ID:* `{target_id}`\n\n"
-            f"This user can no longer send commands or click buttons.",
-            parse_mode="Markdown"
-        )
-    else:
-        await update.message.reply_text(f"❌ User `{target_id}` was not found in the whitelist.")

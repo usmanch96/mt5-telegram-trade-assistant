@@ -4,7 +4,6 @@ import warnings
 # Suppress harmless library-specific warnings to keep the console clean
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from database.db_manager import init_db
 from mt5.connector import initialize_mt5, shutdown_mt5
 from mt5.discovery import select_terminal_interactive
 from bot.main import run_bot_polling
@@ -24,14 +23,7 @@ def main():
     logger.info("Initializing MT5 Telegram Trading Bot...")
     logger.info("==========================================")
     
-    # 1. Initialize SQLite Database
-    try:
-        init_db()
-    except Exception as e:
-        logger.error(f"Critical error initializing database: {e}")
-        sys.exit(1)
-        
-    # 2. Interactive Terminal Selection & MT5 Connection
+    # 1. Interactive Terminal Selection & MT5 Connection
     chosen_terminal = select_terminal_interactive()
     mt5_success = initialize_mt5(path=chosen_terminal)
     if not mt5_success:

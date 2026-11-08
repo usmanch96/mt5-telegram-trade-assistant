@@ -12,7 +12,6 @@ def test_connection():
     print("Testing MetaTrader 5 connection configuration...")
     print(f"MT5_LOGIN: {settings.MT5_LOGIN}")
     print(f"MT5_SERVER: {settings.MT5_SERVER}")
-    print(f"DB_PATH: {settings.DB_PATH}")
     print("------------------------------------------")
     
     # Initialize connection

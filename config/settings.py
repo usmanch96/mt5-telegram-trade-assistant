@@ -9,7 +9,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 # Create necessary directories if they don't exist
-(BASE_DIR / "database").mkdir(exist_ok=True)
 (BASE_DIR / "logs").mkdir(exist_ok=True)
 
 # Configuration settings
@@ -37,8 +36,7 @@ MT5_SERVER = os.getenv("MT5_SERVER", "")
 raw_path = os.getenv("MT5_PATH", "").strip()
 MT5_PATH = raw_path if raw_path else None
 
-# Database and Logging
-DB_PATH = str(BASE_DIR / os.getenv("DB_PATH", "database/trading_bot.db"))
+# Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FILE = str(BASE_DIR / "logs" / "app.log")
 
