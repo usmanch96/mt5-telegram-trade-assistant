@@ -1,3 +1,4 @@
+from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def get_main_keyboard() -> InlineKeyboardMarkup:
@@ -35,12 +36,12 @@ def get_position_control_keyboard(ticket: int) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_quick_stops_keyboard(positions: list = None, selected_symbol: str = "ALL") -> InlineKeyboardMarkup:
-    """Returns quick price entry actions for batch SL/TP with optional fast pair toggle."""
+def get_quick_stops_keyboard(positions: list = None, selected_symbol: str = "ALL", ticket: Optional[int] = None) -> InlineKeyboardMarkup:
+    """Returns quick price entry actions for batch SL/TP with optional fast pair toggle or single position view."""
     keyboard = []
     
-    # 1. Quick Pair Selector Row (if 2 or more distinct symbols exist)
-    if positions:
+    # 1. Quick Pair Selector Row (only shown in batch mode if 2 or more distinct symbols exist)
+    if not ticket and positions:
         symbols = sorted(list(set(p["symbol"] for p in positions)))
         if len(symbols) > 1:
             pair_row = []
@@ -57,7 +58,13 @@ def get_quick_stops_keyboard(positions: list = None, selected_symbol: str = "ALL
             if pair_row:
                 keyboard.append(pair_row)
 
-    # 2. Main Price Entry Actions
+    # 2. Main Price Entry Actions (identical for both batch and single position)
+    back_btn = (
+        InlineKeyboardButton("⬅️ Back to Trade", callback_data=f"pos_view_{ticket}")
+        if ticket
+        else InlineKeyboardButton("🏠 Main Menu", callback_data="batch_back_home")
+    )
+
     keyboard.extend([
         [
             InlineKeyboardButton("⚡ Set Both SL & TP (Step-by-Step)", callback_data="qstop_mode_both")
@@ -71,10 +78,19 @@ def get_quick_stops_keyboard(positions: list = None, selected_symbol: str = "ALL
             InlineKeyboardButton("❌ Clear Stops", callback_data="qstop_mode_clear_all")
         ],
         [
-            InlineKeyboardButton("🏠 Main Menu", callback_data="batch_back_home")
+            back_btn
         ]
     ])
     return InlineKeyboardMarkup(keyboard)
+
+def get_quick_stops_done_keyboard(ticket: Optional[int] = None) -> InlineKeyboardMarkup:
+    """Returns navigation buttons after stops have been applied."""
+    if ticket:
+        return InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚙️ Trade Controls", callback_data=f"pos_view_{ticket}")],
+            [InlineKeyboardButton("⬅️ Back to Positions", callback_data="menu_trades")]
+        ])
+    return get_back_keyboard("menu_main")
 
 def get_quick_guided_sl_keyboard() -> InlineKeyboardMarkup:
     """Buttons for guided SL price entry step."""

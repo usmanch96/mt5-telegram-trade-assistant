@@ -10,9 +10,7 @@ from bot.handlers.positions import (
     cb_be_position_action,
     cb_partial_close_options,
     cb_partial_close_execute,
-    cb_edit_stops_menu,
-    cb_adjust_stops_execute,
-    get_position_modification_handler
+    cb_adjust_stops_execute
 )
 from bot.handlers.batch import get_batch_conv_handler, cmd_quick_stops
 from services.logger import logger
@@ -45,8 +43,7 @@ def build_bot_app():
     # Register global error handler
     app.add_error_handler(global_error_handler)
     
-    # State-based Conversation Handlers (MUST be registered first)
-    app.add_handler(get_position_modification_handler())
+    # State-based Conversation Handlers (Unified Quick SL/TP for batch & single trades)
     app.add_handler(get_batch_conv_handler())
     
     # Unified Account Status / Dashboard Commands
@@ -66,7 +63,6 @@ def build_bot_app():
     app.add_handler(CallbackQueryHandler(cb_partial_close_execute, pattern=r"^pos_partexec_\d+_\d+\.\d+$"))
     
     # Callback Handlers (Incremental Stops Adjustments)
-    app.add_handler(CallbackQueryHandler(cb_edit_stops_menu, pattern=r"^pos_edit_menu_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_adjust_stops_execute, pattern=r"^pos_adj_\d+_(sl|tp)_(?!custom).+$"))
 
     # Noop handler for decorative buttons

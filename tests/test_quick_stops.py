@@ -10,6 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from bot.keyboards import (
     get_main_keyboard,
     get_quick_stops_keyboard,
+    get_quick_stops_done_keyboard,
     get_quick_guided_sl_keyboard,
     get_quick_guided_tp_keyboard,
     get_quick_single_sl_keyboard,
@@ -81,7 +82,25 @@ def test_quick_stops_keyboards():
     assert "batch_back_home" in q_callbacks, "batch_back_home missing!"
     print("  [OK] All Quick Stops dashboard action buttons verified.")
 
-    # 6. Check guided keyboards
+    # 6. Check single-trade targeted keyboard
+    single_trade_kb = get_quick_stops_keyboard(multi_sym_positions, ticket=5555)
+    st_callbacks = [btn.callback_data for row in single_trade_kb.inline_keyboard for btn in row]
+    assert not any(c.startswith("qpair_") for c in st_callbacks), "Pair selector should not show in single-trade mode!"
+    assert "pos_view_5555" in st_callbacks, "pos_view_5555 back button missing in single-trade keyboard!"
+    assert "qstop_mode_both" in st_callbacks and "qstop_mode_be" in st_callbacks
+    print("  [OK] Single trade targeted Quick Stops keyboard verified.")
+
+    # 7. Check completion keyboards
+    trade_done_kb = get_quick_stops_done_keyboard(ticket=5555)
+    td_callbacks = [btn.callback_data for row in trade_done_kb.inline_keyboard for btn in row]
+    assert "pos_view_5555" in td_callbacks and "menu_trades" in td_callbacks
+    
+    batch_done_kb = get_quick_stops_done_keyboard()
+    bd_callbacks = [btn.callback_data for row in batch_done_kb.inline_keyboard for btn in row]
+    assert "menu_main" in bd_callbacks
+    print("  [OK] Quick stops completion keyboards verified.")
+
+    # 8. Check guided keyboards
     g_sl_cb = [btn.callback_data for row in get_quick_guided_sl_keyboard().inline_keyboard for btn in row]
     assert "qsl_skip" in g_sl_cb and "qsl_clear" in g_sl_cb
     
@@ -229,6 +248,13 @@ async def test_apply_quick_stops():
         assert "🟢 *Total TP Target* · " in res
         assert mock_modify.call_count == 2
         print("  [OK] Both SL & TP applied across 2 positions successfully with Float P&L, SL Risk, and TP Target.")
+
+        # Test Single Position Stop Application
+        single_pos = [mock_positions[0]]
+        res_single = await apply_quick_stops_values(single_pos, sl_val=2735.0, tp_val=2790.0)
+        assert "Ticket #1001 · XAUUSD" in res_single
+        assert "Successful:* `1/1`" in res_single
+        print("  [OK] Single trade SL/TP applied successfully with ticket formatting.")
 
     print("\nAll Quick Stops tests passed with 100% success!")
 

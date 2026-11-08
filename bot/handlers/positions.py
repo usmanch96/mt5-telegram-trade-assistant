@@ -539,36 +539,9 @@ async def cb_partial_close_execute(update: Update, context: ContextTypes.DEFAULT
 
 @restricted
 async def cb_edit_stops_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays the interactive button-based stops adjustment keyboard."""
-    query = update.callback_query
-    await query.answer()
-    
-    ticket = int(query.data.split("_")[3])
-    context.user_data["active_card_msg_id"] = query.message.message_id
-    
-    positions = await asyncio.to_thread(get_active_positions)
-    pos = next((p for p in positions if p["ticket"] == ticket), None)
-    
-    if not pos:
-        await query.edit_message_text("❌ Trade no longer active.", reply_markup=get_back_keyboard("menu_trades"))
-        return
-        
-    sl_lbl = f"`{pos['sl']:.5f}`" if pos["sl"] > 0 else "_Not set_"
-    tp_lbl = f"`{pos['tp']:.5f}`" if pos["tp"] > 0 else "_Not set_"
-    
-    text = (
-        f"✏️ *Adjust Stops: #{ticket}* ({pos['symbol']})\n\n"
-        f"📥 *Open Price:* `{pos['price_open']:.5f}` | *Current:* `{pos['price_current']:.5f}`\n"
-        f"🔴 *Stop Loss:* {sl_lbl}\n"
-        f"🟢 *Take Profit:* {tp_lbl}\n\n"
-        f"👇 *Click buttons below to incrementally shift stops in the profitable (+ pips) or risk (- pips) directions:* "
-    )
-    
-    await query.edit_message_text(
-        text=text,
-        parse_mode="Markdown",
-        reply_markup=get_stops_adjustment_keyboard(ticket)
-    )
+    """Displays the Quick SL/TP dashboard for the targeted trade."""
+    from bot.handlers.batch import cb_start_ticket_quick_stops
+    return await cb_start_ticket_quick_stops(update, context)
 
 @restricted
 async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -661,52 +634,9 @@ async def cb_adjust_stops_execute(update: Update, context: ContextTypes.DEFAULT_
 
 @restricted
 async def start_edit_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Triggered by Custom stops button. Starts smart price entry prompt flow."""
-    query = update.callback_query
-    await query.answer()
-    
-    ticket = int(query.data.split("_")[2])
-    context.user_data["edit_ticket"] = ticket
-    context.user_data["active_card_msg_id"] = query.message.message_id
-    
-    positions = await asyncio.to_thread(get_active_positions)
-    pos = next((p for p in positions if p["ticket"] == ticket), None)
-    if not pos:
-        await query.edit_message_text(
-            text=f"❌ Position `#{ticket}` is no longer active.",
-            reply_markup=get_back_keyboard("menu_trades")
-        )
-        return ConversationHandler.END
-        
-    symbol = pos["symbol"]
-    sym_info = await asyncio.to_thread(get_symbol_info, symbol)
-    digits = sym_info["digits"] if sym_info else 5
-    curr = pos["price_current"]
-    sl_curr = f"`{pos['sl']:.{digits}f}`" if pos["sl"] > 0 else "_None_"
-    tp_curr = f"`{pos['tp']:.{digits}f}`" if pos["tp"] > 0 else "_None_"
-    
-    text = (
-        f"✏️ *Smart Stops for Ticket #{ticket}* · `{symbol}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📊 *Type:* `{pos['type']}` {pos['volume']} lots\n"
-        f"🎯 *Current Market:* `{curr:.{digits}f}`\n"
-        f"🔴 *Current SL:* {sl_curr}\n"
-        f"🟢 *Current TP:* {tp_curr}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"✍️ *Quick Type & Send (Fastest):*\n"
-        f"• Both: `2740.50 2790.00` (auto-aligned)\n"
-        f"• SL only: `2740.50` or `sl 2740.50`\n"
-        f"• TP only: `2790.00` or `tp 2790.00`\n"
-        f"• Clear stops: `0` to remove\n\n"
-        f"👇 _Send your price above, or tap Cancel:_"
-    )
-    
-    cancel_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Cancel", callback_data=f"pos_view_{ticket}")]
-    ])
-    
-    await query.edit_message_text(text=text, parse_mode="Markdown", reply_markup=cancel_kb)
-    return WAITING_STOPS
+    """Triggered by Custom stops button. Enters Quick SL/TP dashboard for the targeted trade."""
+    from bot.handlers.batch import cb_start_ticket_quick_stops
+    return await cb_start_ticket_quick_stops(update, context)
 
 async def txt_edit_stops_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Processes smart typed SL/TP with auto-ordering, risk calculation, and in-place feedback."""

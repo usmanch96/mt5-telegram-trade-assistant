@@ -18,6 +18,7 @@ from bot.keyboards import (
     get_back_keyboard, 
     get_main_keyboard,
     get_quick_stops_keyboard,
+    get_quick_stops_done_keyboard,
     get_quick_guided_sl_keyboard,
     get_quick_guided_tp_keyboard,
     get_quick_single_sl_keyboard,
@@ -149,7 +150,10 @@ async def apply_quick_stops_values(positions: list, sl_val: Optional[float], tp_
         else:
             target_symbol_desc = f"All {len(positions)} positions"
     elif len(symbols) == 1:
-        target_symbol_desc = f"{symbols[0]} ({len(positions)} positions)"
+        if len(target_positions) == 1:
+            target_symbol_desc = f"Ticket #{target_positions[0]['ticket']} · {symbols[0]}"
+        else:
+            target_symbol_desc = f"{symbols[0]} ({len(positions)} positions)"
         
     success_count = 0
     fail_count = 0
@@ -346,66 +350,98 @@ def parse_quick_price_input(text: str, positions: list, default_symbol: str = "A
 
 async def render_quick_stops_screen(message, positions: list, is_edit: bool = False, selected_symbol: str = "ALL", context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Renders the fast, interactive Quick Batch SL/TP dashboard screen with 1-tap pair selection."""
-    symbols = sorted(list(set(p["symbol"] for p in positions)))
-    
-    if selected_symbol != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == selected_symbol]
-    else:
-        target_positions = positions
-        
-    if selected_symbol != "ALL" and target_positions:
-        s_info = await asyncio.to_thread(get_symbol_info, selected_symbol)
+    target_ticket = context.user_data.get("quick_target_ticket") if context else None
+    target_pos = next((p for p in positions if p["ticket"] == target_ticket), None) if target_ticket else None
+
+    if target_pos:
+        s_info = await asyncio.to_thread(get_symbol_info, target_pos["symbol"])
         digits = s_info["digits"] if s_info else 2
         ask = s_info["ask"] if s_info else 0.0
         bid = s_info["bid"] if s_info else 0.0
-        avg_entry = sum(p["price_open"] for p in target_positions) / len(target_positions)
-        current_sl = target_positions[0]["sl"]
-        current_tp = target_positions[0]["tp"]
+        current_sl = target_pos["sl"]
+        current_tp = target_pos["tp"]
         sl_lbl = f"`{current_sl:.{digits}f}`" if current_sl > 0 else "_None_"
         tp_lbl = f"`{current_tp:.{digits}f}`" if current_tp > 0 else "_None_"
-        
+
         focus_header = (
-            f"🎯 *Selected Pair:* `{selected_symbol}` (`{len(target_positions)}` positions)\n"
-            f"📥 *Avg Entry:* `{avg_entry:.{digits}f}`\n"
+            f"🎫 *Trade:* `#{target_ticket}` · *{target_pos['symbol']}* (`{target_pos['type']}` `{target_pos['volume']:.2f}` lots)\n"
+            f"📥 *Open Price:* `{target_pos['price_open']:.{digits}f}`\n"
             f"📲 *Live Market:* Bid `{bid:.{digits}f}` · Ask `{ask:.{digits}f}`\n"
-            f"🔴 Current SL: {sl_lbl}  🟢 Current TP: {tp_lbl}"
+            f"🔴 *Current SL:* {sl_lbl}  🟢 *Current TP:* {tp_lbl}"
         )
+        text = (
+            f"⚡ *Quick SL/TP (Trade #{target_ticket})*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{focus_header}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"✍️ *Quick Type & Send (Fastest):*\n"
+            f"• Both: `2740.50 2790.00` (SL & TP)\n"
+            f"• SL only: `2740.50` or `sl 2740.50`\n"
+            f"• TP only: `2790.00` or `tp 2790.00`\n"
+            f"• Clear stops: `0` to remove\n\n"
+            f"👇 *Or use buttons for guided step-by-step entry:*"
+        )
+        reply_kb = get_quick_stops_keyboard(positions=[target_pos], selected_symbol=target_pos["symbol"], ticket=target_ticket)
     else:
-        sym_lines = []
-        for s in symbols:
-            sym_positions = [p for p in positions if p["symbol"] == s]
-            sym_info = await asyncio.to_thread(get_symbol_info, s)
-            digits = sym_info["digits"] if sym_info else 2
-            ask = sym_info["ask"] if sym_info else 0.0
-            bid = sym_info["bid"] if sym_info else 0.0
-            avg_entry = sum(p["price_open"] for p in sym_positions) / len(sym_positions)
-            sym_lines.append(
-                f"• *{s}* (`{len(sym_positions)}` trades) · Avg `{avg_entry:.{digits}f}` | Bid `{bid:.{digits}f}`"
+        symbols = sorted(list(set(p["symbol"] for p in positions)))
+        
+        if selected_symbol != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == selected_symbol]
+        else:
+            target_positions = positions
+            
+        if selected_symbol != "ALL" and target_positions:
+            s_info = await asyncio.to_thread(get_symbol_info, selected_symbol)
+            digits = s_info["digits"] if s_info else 2
+            ask = s_info["ask"] if s_info else 0.0
+            bid = s_info["bid"] if s_info else 0.0
+            avg_entry = sum(p["price_open"] for p in target_positions) / len(target_positions)
+            current_sl = target_positions[0]["sl"]
+            current_tp = target_positions[0]["tp"]
+            sl_lbl = f"`{current_sl:.{digits}f}`" if current_sl > 0 else "_None_"
+            tp_lbl = f"`{current_tp:.{digits}f}`" if current_tp > 0 else "_None_"
+            
+            focus_header = (
+                f"🎯 *Selected Pair:* `{selected_symbol}` (`{len(target_positions)}` positions)\n"
+                f"📥 *Avg Entry:* `{avg_entry:.{digits}f}`\n"
+                f"📲 *Live Market:* Bid `{bid:.{digits}f}` · Ask `{ask:.{digits}f}`\n"
+                f"🔴 Current SL: {sl_lbl}  🟢 Current TP: {tp_lbl}"
             )
-        focus_header = (
-            f"🌐 *Target:* `All Pairs` (`{len(positions)}` positions across `{len(symbols)}` symbols)\n"
-            + "\n".join(sym_lines)
+        else:
+            sym_lines = []
+            for s in symbols:
+                sym_positions = [p for p in positions if p["symbol"] == s]
+                sym_info = await asyncio.to_thread(get_symbol_info, s)
+                digits = sym_info["digits"] if sym_info else 2
+                ask = sym_info["ask"] if sym_info else 0.0
+                bid = sym_info["bid"] if sym_info else 0.0
+                avg_entry = sum(p["price_open"] for p in sym_positions) / len(sym_positions)
+                sym_lines.append(
+                    f"• *{s}* (`{len(sym_positions)}` trades) · Avg `{avg_entry:.{digits}f}` | Bid `{bid:.{digits}f}`"
+                )
+            focus_header = (
+                f"🌐 *Target:* `All Pairs` (`{len(positions)}` positions across `{len(symbols)}` symbols)\n"
+                + "\n".join(sym_lines)
+            )
+            
+        pair_hint = ""
+        if len(symbols) > 1:
+            pair_hint = "💡 _Tap a pair button below to switch target pair instantly._\n\n"
+            
+        text = (
+            f"⚡ *Quick Batch SL/TP (Price Entry)*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{focus_header}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"{pair_hint}"
+            f"✍️ *Quick Type & Send (Fastest):*\n"
+            f"• Both: `2740.50 2790.00` (SL & TP)\n"
+            f"• Specific Pair: `XAUUSD 2740.50 2790.00`\n"
+            f"• SL only: `2740.50` or `sl 2740.50`\n"
+            f"• TP only: `2790.00` or `tp 2790.00`\n\n"
+            f"👇 *Or use buttons for guided step-by-step entry:*"
         )
-        
-    pair_hint = ""
-    if len(symbols) > 1:
-        pair_hint = "💡 _Tap a pair button below to switch target pair instantly._\n\n"
-        
-    text = (
-        f"⚡ *Quick Batch SL/TP (Price Entry)*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{focus_header}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"{pair_hint}"
-        f"✍️ *Quick Type & Send (Fastest):*\n"
-        f"• Both: `2740.50 2790.00` (SL & TP)\n"
-        f"• Specific Pair: `XAUUSD 2740.50 2790.00`\n"
-        f"• SL only: `2740.50` or `sl 2740.50`\n"
-        f"• TP only: `2790.00` or `tp 2790.00`\n\n"
-        f"👇 *Or use buttons for guided step-by-step entry:*"
-    )
-    
-    reply_kb = get_quick_stops_keyboard(positions, selected_symbol)
+        reply_kb = get_quick_stops_keyboard(positions, selected_symbol)
     if is_edit and hasattr(message, "edit_text"):
         try:
             await message.edit_text(text, parse_mode="Markdown", reply_markup=reply_kb)
@@ -459,17 +495,28 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
     data = query.data # qstop_mode_both, qstop_mode_sl_only, qstop_mode_tp_only, qstop_mode_be, qstop_mode_clear_all
     
     positions = await asyncio.to_thread(get_active_positions)
+    target_ticket = context.user_data.get("quick_target_ticket")
     if not positions:
-        await query.edit_message_text("📭 No active positions found to update.", reply_markup=get_back_keyboard("menu_main"))
+        done_kb = get_quick_stops_done_keyboard(target_ticket)
+        await query.edit_message_text("📭 No active positions found to update.", reply_markup=done_kb)
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    if target_sym and target_sym != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == target_sym]
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
         if not target_positions:
-            target_positions = positions
+            await query.edit_message_text(f"❌ Position `#{target_ticket}` is no longer active.", reply_markup=get_quick_stops_done_keyboard(target_ticket))
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
+        target_sym = target_positions[0]["symbol"]
     else:
-        target_positions = positions
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        if target_sym and target_sym != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == target_sym]
+            if not target_positions:
+                target_positions = positions
+        else:
+            target_positions = positions
 
     context.user_data["b_positions_snapshot"] = target_positions
     context.user_data["active_card_msg_id"] = query.message.message_id
@@ -482,7 +529,7 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
         return await render_quick_single_tp_prompt(query.message, target_positions, is_edit=True, context=context)
     elif data == "qstop_mode_be":
         # Instant Break-Even
-        sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
+        sym_desc = f"Ticket `#{target_ticket}`" if target_ticket else (f"`{target_sym}`" if target_sym != "ALL" else "all positions")
         await query.edit_message_text(f"⚡ *Moving winning trades ({sym_desc}) to Break-Even...*", parse_mode="Markdown")
         start_time = time.perf_counter()
         success = 0
@@ -510,10 +557,11 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
         risk_summary_lines = await compute_portfolio_risk_summary_lines()
         risk_block = "\n".join(risk_summary_lines)
         
+        target_header = f"Ticket `#{target_ticket}` · `{target_positions[0]['symbol']}`" if target_ticket else f"`{target_sym}`"
         msg = (
             f"🛡️ *Break-Even Applied!*\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔣 *Target:* `{target_sym}`\n"
+            f"🔣 *Target:* {target_header}\n"
             f"✅ *Moved to BE:* `{success}/{len(target_positions)} trades`\n"
         )
         if skipped > 0:
@@ -525,14 +573,18 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
             f"⏱️ *Executed in:* `{elapsed:.2f}s`"
         )
         
-        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+        done_kb = get_quick_stops_done_keyboard(target_ticket)
+        await query.edit_message_text(msg, parse_mode="Markdown", reply_markup=done_kb)
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
     elif data == "qstop_mode_clear_all":
-        sym_desc = f"`{target_sym}`" if target_sym != "ALL" else "all positions"
+        sym_desc = f"Ticket `#{target_ticket}`" if target_ticket else (f"`{target_sym}`" if target_sym != "ALL" else "all positions")
         await query.edit_message_text(f"⚡ *Clearing Stop Loss & Take Profit for {sym_desc}...*", parse_mode="Markdown")
         res_text = await apply_quick_stops_values(target_positions, sl_val=0.0, tp_val=0.0)
-        await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+        done_kb = get_quick_stops_done_keyboard(target_ticket)
+        await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=done_kb)
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
     return WAITING_QUICK_STOPS_INPUT
@@ -541,7 +593,15 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def render_quick_guided_sl_prompt(message, positions: list, is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for Stop Loss price in guided mode."""
-    sym = positions[0]["symbol"] if positions else "Pairs"
+    target_ticket = context.user_data.get("quick_target_ticket") if context else None
+    if target_ticket:
+        pos = next((p for p in positions if p["ticket"] == target_ticket), positions[0] if positions else None)
+        sym = pos["symbol"] if pos else "Pair"
+        target_desc = f"Ticket `#{target_ticket}` · `{sym}`"
+    else:
+        sym = positions[0]["symbol"] if positions else "Pairs"
+        target_desc = f"`{sym}` ({len(positions)} positions)"
+
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
     digits = sym_info["digits"] if sym_info else 2
     bid = sym_info["bid"] if sym_info else 0.0
@@ -550,7 +610,7 @@ async def render_quick_guided_sl_prompt(message, positions: list, is_edit: bool 
     text = (
         f"🔴 *Step 1/2: Enter Stop Loss (SL) Price*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔣 *Symbol:* `{sym}` ({len(positions)} positions)\n"
+        f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
         f"✍️ *Type the new SL price* (e.g. `{bid * 0.995:.{digits}f}`):\n"
         f"_(Or click Skip below to leave SL unchanged)_"
@@ -631,7 +691,15 @@ async def txt_quick_guided_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def render_quick_guided_tp_prompt(message, positions: list, sl_val: Optional[float], is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for Take Profit price in guided mode."""
-    sym = positions[0]["symbol"] if positions else "Pairs"
+    target_ticket = context.user_data.get("quick_target_ticket") if context else None
+    if target_ticket:
+        pos = next((p for p in positions if p["ticket"] == target_ticket), positions[0] if positions else None)
+        sym = pos["symbol"] if pos else "Pair"
+        target_desc = f"Ticket `#{target_ticket}` · `{sym}`"
+    else:
+        sym = positions[0]["symbol"] if positions else "Pairs"
+        target_desc = f"`{sym}` ({len(positions)} positions)"
+
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
     digits = sym_info["digits"] if sym_info else 2
     bid = sym_info["bid"] if sym_info else 0.0
@@ -643,7 +711,7 @@ async def render_quick_guided_tp_prompt(message, positions: list, sl_val: Option
         f"🟢 *Step 2/2: Enter Take Profit (TP) Price*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"🔴 *SL Level:* {sl_desc}\n"
-        f"🔣 *Symbol:* `{sym}` ({len(positions)} positions)\n"
+        f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
         f"✍️ *Type the new TP price* (e.g. `{ask * 1.005:.{digits}f}`):\n"
         f"_(Or click Skip below to leave TP unchanged)_"
@@ -682,20 +750,31 @@ async def cb_quick_guided_tp_btn(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
+    target_ticket = context.user_data.get("quick_target_ticket")
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if not positions:
-        await query.edit_message_text("📭 Positions closed before stops were applied.", reply_markup=get_back_keyboard("menu_main"))
+        await query.edit_message_text("📭 Positions closed before stops were applied.", reply_markup=done_kb)
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    if target_sym and target_sym != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == target_sym]
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
         if not target_positions:
-            target_positions = positions
+            await query.edit_message_text(f"❌ Position `#{target_ticket}` closed before stops were applied.", reply_markup=done_kb)
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
     else:
-        target_positions = positions
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        if target_sym and target_sym != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == target_sym]
+            if not target_positions:
+                target_positions = positions
+        else:
+            target_positions = positions
         
     res_text = await apply_quick_stops_values(target_positions, sl_val, tp_val)
-    await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=done_kb)
+    context.user_data.pop("quick_target_ticket", None)
     return ConversationHandler.END
 
 async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -738,25 +817,45 @@ async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
         
     sl_val = context.user_data.get("quick_sl")
     positions = await asyncio.to_thread(get_active_positions)
+    target_ticket = context.user_data.get("quick_target_ticket")
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if not positions:
         err_msg = "📭 Positions closed before stops were applied."
         if old_card_id:
             try:
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                context.user_data.pop("quick_target_ticket", None)
                 return ConversationHandler.END
             except Exception:
                 pass
-        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
         context.user_data["active_card_msg_id"] = msg.message_id
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    if target_sym and target_sym != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == target_sym]
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
         if not target_positions:
-            target_positions = positions
+            err_msg = f"❌ Position `#{target_ticket}` closed before stops were applied."
+            if old_card_id:
+                try:
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                    context.user_data.pop("quick_target_ticket", None)
+                    return ConversationHandler.END
+                except Exception:
+                    pass
+            msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
+            context.user_data["active_card_msg_id"] = msg.message_id
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
     else:
-        target_positions = positions
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        if target_sym and target_sym != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == target_sym]
+            if not target_positions:
+                target_positions = positions
+        else:
+            target_positions = positions
         
     res_text = await apply_quick_stops_values(target_positions, sl_val, tp_val)
     if old_card_id:
@@ -766,20 +865,30 @@ async def txt_quick_guided_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
                 message_id=old_card_id,
                 text=res_text,
                 parse_mode="Markdown",
-                reply_markup=get_back_keyboard("menu_main")
+                reply_markup=done_kb
             )
+            context.user_data.pop("quick_target_ticket", None)
             return ConversationHandler.END
         except Exception:
             pass
-    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=done_kb)
     context.user_data["active_card_msg_id"] = msg.message_id
+    context.user_data.pop("quick_target_ticket", None)
     return ConversationHandler.END
 
 # --- Single SL-Only / TP-Only Modes ---
 
 async def render_quick_single_sl_prompt(message, positions: list, is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for SL price only."""
-    sym = positions[0]["symbol"] if positions else "Pairs"
+    target_ticket = context.user_data.get("quick_target_ticket") if context else None
+    if target_ticket:
+        pos = next((p for p in positions if p["ticket"] == target_ticket), positions[0] if positions else None)
+        sym = pos["symbol"] if pos else "Pair"
+        target_desc = f"Ticket `#{target_ticket}` · `{sym}`"
+    else:
+        sym = positions[0]["symbol"] if positions else "Pairs"
+        target_desc = f"`{sym}` ({len(positions)} positions)"
+
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
     digits = sym_info["digits"] if sym_info else 2
     bid = sym_info["bid"] if sym_info else 0.0
@@ -788,9 +897,9 @@ async def render_quick_single_sl_prompt(message, positions: list, is_edit: bool 
     text = (
         f"🔴 *Quick Set: Stop Loss (SL) Price*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔣 *Symbol:* `{sym}` ({len(positions)} positions)\n"
+        f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
-        f"✍️ *Type target SL price level* for all positions (e.g. `{bid * 0.995:.{digits}f}`):"
+        f"✍️ *Type target SL price level* (e.g. `{bid * 0.995:.{digits}f}`):"
     )
     kb = get_quick_single_sl_keyboard()
     if is_edit and hasattr(message, "edit_text"):
@@ -822,20 +931,31 @@ async def cb_quick_single_sl_btn(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
+    target_ticket = context.user_data.get("quick_target_ticket")
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if not positions:
-        await query.edit_message_text("📭 No active positions.", reply_markup=get_back_keyboard("menu_main"))
+        await query.edit_message_text("📭 No active positions.", reply_markup=done_kb)
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    if target_sym and target_sym != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == target_sym]
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
         if not target_positions:
-            target_positions = positions
+            await query.edit_message_text(f"❌ Position `#{target_ticket}` closed before stops were applied.", reply_markup=done_kb)
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
     else:
-        target_positions = positions
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        if target_sym and target_sym != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == target_sym]
+            if not target_positions:
+                target_positions = positions
+        else:
+            target_positions = positions
         
     res_text = await apply_quick_stops_values(target_positions, sl_val=0.0, tp_val=None)
-    await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=done_kb)
+    context.user_data.pop("quick_target_ticket", None)
     return ConversationHandler.END
 
 async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -877,25 +997,45 @@ async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
         return WAITING_QUICK_ONLY_SL
         
     positions = await asyncio.to_thread(get_active_positions)
+    target_ticket = context.user_data.get("quick_target_ticket")
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if not positions:
         err_msg = "📭 No active positions."
         if old_card_id:
             try:
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                context.user_data.pop("quick_target_ticket", None)
                 return ConversationHandler.END
             except Exception:
                 pass
-        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
         context.user_data["active_card_msg_id"] = msg.message_id
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    if target_sym and target_sym != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == target_sym]
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
         if not target_positions:
-            target_positions = positions
+            err_msg = f"❌ Position `#{target_ticket}` closed before stops were applied."
+            if old_card_id:
+                try:
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                    context.user_data.pop("quick_target_ticket", None)
+                    return ConversationHandler.END
+                except Exception:
+                    pass
+            msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
+            context.user_data["active_card_msg_id"] = msg.message_id
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
     else:
-        target_positions = positions
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        if target_sym and target_sym != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == target_sym]
+            if not target_positions:
+                target_positions = positions
+        else:
+            target_positions = positions
         
     res_text = await apply_quick_stops_values(target_positions, sl_val=val, tp_val=None)
     if old_card_id:
@@ -905,18 +1045,28 @@ async def txt_quick_single_sl(update: Update, context: ContextTypes.DEFAULT_TYPE
                 message_id=old_card_id,
                 text=res_text,
                 parse_mode="Markdown",
-                reply_markup=get_back_keyboard("menu_main")
+                reply_markup=done_kb
             )
+            context.user_data.pop("quick_target_ticket", None)
             return ConversationHandler.END
         except Exception:
             pass
-    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=done_kb)
     context.user_data["active_card_msg_id"] = msg.message_id
+    context.user_data.pop("quick_target_ticket", None)
     return ConversationHandler.END
 
 async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool = False, context: Optional[ContextTypes.DEFAULT_TYPE] = None) -> int:
     """Prompts for TP price only."""
-    sym = positions[0]["symbol"] if positions else "Pairs"
+    target_ticket = context.user_data.get("quick_target_ticket") if context else None
+    if target_ticket:
+        pos = next((p for p in positions if p["ticket"] == target_ticket), positions[0] if positions else None)
+        sym = pos["symbol"] if pos else "Pair"
+        target_desc = f"Ticket `#{target_ticket}` · `{sym}`"
+    else:
+        sym = positions[0]["symbol"] if positions else "Pairs"
+        target_desc = f"`{sym}` ({len(positions)} positions)"
+
     sym_info = await asyncio.to_thread(get_symbol_info, sym)
     digits = sym_info["digits"] if sym_info else 2
     bid = sym_info["bid"] if sym_info else 0.0
@@ -925,9 +1075,9 @@ async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool 
     text = (
         f"🟢 *Quick Set: Take Profit (TP) Price*\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔣 *Symbol:* `{sym}` ({len(positions)} positions)\n"
+        f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
-        f"✍️ *Type target TP price level* for all positions (e.g. `{ask * 1.005:.{digits}f}`):"
+        f"✍️ *Type target TP price level* (e.g. `{ask * 1.005:.{digits}f}`):"
     )
     kb = get_quick_single_tp_keyboard()
     if is_edit and hasattr(message, "edit_text"):
@@ -959,20 +1109,31 @@ async def cb_quick_single_tp_btn(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data["active_card_msg_id"] = query.message.message_id
     
     positions = await asyncio.to_thread(get_active_positions)
+    target_ticket = context.user_data.get("quick_target_ticket")
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if not positions:
-        await query.edit_message_text("📭 No active positions.", reply_markup=get_back_keyboard("menu_main"))
+        await query.edit_message_text("📭 No active positions.", reply_markup=done_kb)
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    if target_sym and target_sym != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == target_sym]
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
         if not target_positions:
-            target_positions = positions
+            await query.edit_message_text(f"❌ Position `#{target_ticket}` closed before stops were applied.", reply_markup=done_kb)
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
     else:
-        target_positions = positions
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        if target_sym and target_sym != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == target_sym]
+            if not target_positions:
+                target_positions = positions
+        else:
+            target_positions = positions
         
     res_text = await apply_quick_stops_values(target_positions, sl_val=None, tp_val=0.0)
-    await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    await query.edit_message_text(res_text, parse_mode="Markdown", reply_markup=done_kb)
+    context.user_data.pop("quick_target_ticket", None)
     return ConversationHandler.END
 
 async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1014,25 +1175,45 @@ async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
         return WAITING_QUICK_ONLY_TP
         
     positions = await asyncio.to_thread(get_active_positions)
+    target_ticket = context.user_data.get("quick_target_ticket")
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if not positions:
         err_msg = "📭 No active positions."
         if old_card_id:
             try:
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                context.user_data.pop("quick_target_ticket", None)
                 return ConversationHandler.END
             except Exception:
                 pass
-        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
         context.user_data["active_card_msg_id"] = msg.message_id
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    if target_sym and target_sym != "ALL":
-        target_positions = [p for p in positions if p["symbol"] == target_sym]
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
         if not target_positions:
-            target_positions = positions
+            err_msg = f"❌ Position `#{target_ticket}` closed before stops were applied."
+            if old_card_id:
+                try:
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                    context.user_data.pop("quick_target_ticket", None)
+                    return ConversationHandler.END
+                except Exception:
+                    pass
+            msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
+            context.user_data["active_card_msg_id"] = msg.message_id
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
     else:
-        target_positions = positions
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        if target_sym and target_sym != "ALL":
+            target_positions = [p for p in positions if p["symbol"] == target_sym]
+            if not target_positions:
+                target_positions = positions
+        else:
+            target_positions = positions
         
     res_text = await apply_quick_stops_values(target_positions, sl_val=None, tp_val=val)
     if old_card_id:
@@ -1042,13 +1223,15 @@ async def txt_quick_single_tp(update: Update, context: ContextTypes.DEFAULT_TYPE
                 message_id=old_card_id,
                 text=res_text,
                 parse_mode="Markdown",
-                reply_markup=get_back_keyboard("menu_main")
+                reply_markup=done_kb
             )
+            context.user_data.pop("quick_target_ticket", None)
             return ConversationHandler.END
         except Exception:
             pass
-    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=get_back_keyboard("menu_main"))
+    msg = await context.bot.send_message(chat_id=chat_id, text=res_text, parse_mode="Markdown", reply_markup=done_kb)
     context.user_data["active_card_msg_id"] = msg.message_id
+    context.user_data.pop("quick_target_ticket", None)
     return ConversationHandler.END
 
 # --- Direct Chat Input (Fast Mode) ---
@@ -1064,27 +1247,51 @@ async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TY
     text = update.message.text.strip()
     old_card_id = context.user_data.get("active_card_msg_id")
     chat_id = update.effective_chat.id
+    target_ticket = context.user_data.get("quick_target_ticket")
     
     positions = await asyncio.to_thread(get_active_positions)
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if not positions:
         err_msg = "📭 No active positions found to update."
         if old_card_id:
             try:
-                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+                await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                context.user_data.pop("quick_target_ticket", None)
                 return ConversationHandler.END
             except Exception:
                 pass
-        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=get_back_keyboard("menu_main"))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
         context.user_data["active_card_msg_id"] = msg.message_id
+        context.user_data.pop("quick_target_ticket", None)
         return ConversationHandler.END
         
-    target_sym = context.user_data.get("quick_target_symbol", "ALL")
-    sl_val, tp_val, target_positions, err = parse_quick_price_input(text, positions, default_symbol=target_sym)
+    if target_ticket:
+        target_positions = [p for p in positions if p["ticket"] == target_ticket]
+        if not target_positions:
+            err_msg = f"❌ Position `#{target_ticket}` no longer active."
+            if old_card_id:
+                try:
+                    await context.bot.edit_message_text(chat_id=chat_id, message_id=old_card_id, text=err_msg, reply_markup=done_kb)
+                    context.user_data.pop("quick_target_ticket", None)
+                    return ConversationHandler.END
+                except Exception:
+                    pass
+            msg = await context.bot.send_message(chat_id=chat_id, text=err_msg, reply_markup=done_kb)
+            context.user_data["active_card_msg_id"] = msg.message_id
+            context.user_data.pop("quick_target_ticket", None)
+            return ConversationHandler.END
+        target_sym = target_positions[0]["symbol"]
+        sl_val, tp_val, _, err = parse_quick_price_input(text, target_positions, default_symbol=target_sym)
+    else:
+        target_sym = context.user_data.get("quick_target_symbol", "ALL")
+        sl_val, tp_val, target_positions, err = parse_quick_price_input(text, positions, default_symbol=target_sym)
+
     if err:
         err_prompt = (
             f"{err}\n\n"
             f"👇 *Try again (e.g. `2740.50 2790.00` or `sl 2740.50`):*"
         )
+        reply_kb = get_quick_stops_keyboard(target_positions, target_sym, ticket=target_ticket)
         if old_card_id:
             try:
                 await context.bot.edit_message_text(
@@ -1092,12 +1299,12 @@ async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TY
                     message_id=old_card_id,
                     text=err_prompt,
                     parse_mode="Markdown",
-                    reply_markup=get_quick_stops_keyboard(positions, target_sym)
+                    reply_markup=reply_kb
                 )
                 return WAITING_QUICK_STOPS_INPUT
             except Exception:
                 pass
-        msg = await context.bot.send_message(chat_id=chat_id, text=err_prompt, parse_mode="Markdown", reply_markup=get_quick_stops_keyboard(positions, target_sym))
+        msg = await context.bot.send_message(chat_id=chat_id, text=err_prompt, parse_mode="Markdown", reply_markup=reply_kb)
         context.user_data["active_card_msg_id"] = msg.message_id
         return WAITING_QUICK_STOPS_INPUT
         
@@ -1109,8 +1316,9 @@ async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TY
                 message_id=old_card_id,
                 text=res_text,
                 parse_mode="Markdown",
-                reply_markup=get_back_keyboard("menu_main")
+                reply_markup=done_kb
             )
+            context.user_data.pop("quick_target_ticket", None)
             return ConversationHandler.END
         except Exception:
             pass
@@ -1118,10 +1326,10 @@ async def txt_quick_stops_input(update: Update, context: ContextTypes.DEFAULT_TY
         chat_id=chat_id,
         text=res_text,
         parse_mode="Markdown",
-        reply_markup=get_back_keyboard("menu_main")
+        reply_markup=done_kb
     )
     context.user_data["active_card_msg_id"] = msg.message_id
-    return ConversationHandler.END
+    context.user_data.pop("quick_target_ticket", None)
     return ConversationHandler.END
 
 @restricted
@@ -1139,8 +1347,58 @@ async def cb_start_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return ConversationHandler.END
         
+    context.user_data["quick_target_ticket"] = None
     context.user_data["quick_target_symbol"] = "ALL"
     return await render_quick_stops_screen(query.message, positions, is_edit=True, selected_symbol="ALL", context=context)
+
+@restricted
+async def cb_start_ticket_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Triggered from active position controls '✏️ Edit SL/TP' to use Quick SL/TP flow for a single trade."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    ticket = None
+    if data.startswith("pos_edit_menu_"):
+        try:
+            ticket = int(data.replace("pos_edit_menu_", ""))
+        except ValueError:
+            pass
+    elif data.startswith("pos_adj_"):
+        parts = data.split("_")
+        if len(parts) >= 3 and parts[2].isdigit():
+            ticket = int(parts[2])
+            
+    positions = await asyncio.to_thread(get_active_positions)
+    pos = next((p for p in positions if p["ticket"] == ticket), None) if ticket else None
+    
+    if not pos:
+        await query.edit_message_text(
+            text=f"❌ Position `#{ticket}` is no longer active.",
+            reply_markup=get_back_keyboard("menu_trades")
+        )
+        return ConversationHandler.END
+        
+    context.user_data["quick_target_ticket"] = ticket
+    context.user_data["quick_target_symbol"] = pos["symbol"]
+    context.user_data["b_positions_snapshot"] = [pos]
+    context.user_data["active_card_msg_id"] = query.message.message_id
+    
+    return await render_quick_stops_screen(query.message, [pos], is_edit=True, selected_symbol=pos["symbol"], context=context)
+
+async def cb_cancel_to_view_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles back to trade or clicking pos_view_{ticket} from inside the conversation."""
+    from bot.handlers.positions import cb_view_position
+    context.user_data.pop("quick_target_ticket", None)
+    await cb_view_position(update, context)
+    return ConversationHandler.END
+
+async def cb_cancel_to_positions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Handles back to active positions list from inside the conversation."""
+    from bot.handlers.positions import cb_active_positions
+    context.user_data.pop("quick_target_ticket", None)
+    await cb_active_positions(update, context)
+    return ConversationHandler.END
 
 @restricted
 async def cmd_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1155,6 +1413,7 @@ async def cmd_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
       /quickstops clear sl
       /quickstops  (opens quick interactive screen)
     """
+    context.user_data["quick_target_ticket"] = None
     positions = await asyncio.to_thread(get_active_positions)
     
     target_message = update.message if update.message else (update.callback_query.message if update.callback_query else None)
@@ -1332,10 +1591,16 @@ async def cmd_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 async def cb_cancel_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancels quick wizard and returns to main menu."""
+    """Cancels quick wizard and returns to trade view (if single ticket) or main menu."""
     query = update.callback_query
+    target_ticket = context.user_data.pop("quick_target_ticket", None)
     if query:
         await query.answer("Operation cancelled.")
+        if target_ticket:
+            from bot.handlers.positions import cb_view_position
+            query.data = f"pos_view_{target_ticket}"
+            await cb_view_position(update, context)
+            return ConversationHandler.END
         await query.edit_message_text(
             "❌ *Quick SL/TP operation cancelled.*",
             parse_mode="Markdown",
@@ -1345,6 +1610,8 @@ async def cb_cancel_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def cmd_cancel_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Abort quick stops conversation via text command."""
+    target_ticket = context.user_data.pop("quick_target_ticket", None)
+    done_kb = get_quick_stops_done_keyboard(target_ticket)
     if update.message:
         try:
             await update.message.delete()
@@ -1358,7 +1625,7 @@ async def cmd_cancel_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                     message_id=old_card_id,
                     text="❌ *Quick SL/TP operation cancelled.*",
                     parse_mode="Markdown",
-                    reply_markup=get_back_keyboard("menu_main")
+                    reply_markup=done_kb
                 )
                 return ConversationHandler.END
             except Exception:
@@ -1366,7 +1633,7 @@ async def cmd_cancel_batch(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await update.message.reply_text(
             "❌ *Quick SL/TP operation cancelled.*",
             parse_mode="Markdown",
-            reply_markup=get_back_keyboard("menu_main")
+            reply_markup=done_kb
         )
     return ConversationHandler.END
 
@@ -1376,16 +1643,19 @@ async def cb_cancel_to_home_menu(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     if query:
         await query.answer()
+        context.user_data.pop("quick_target_ticket", None)
         await cb_main_menu(update, context)
     return ConversationHandler.END
 
 # --- Handler Config ---
 
 def get_batch_conv_handler():
-    """Returns configured ConversationHandler for Quick Batch SL/TP."""
+    """Returns configured ConversationHandler for Quick SL/TP (both Batch and Single Trade)."""
     return ConversationHandler(
         entry_points=[
             CallbackQueryHandler(cb_start_quick_stops, pattern="^baction_quick_stops$"),
+            CallbackQueryHandler(cb_start_ticket_quick_stops, pattern=r"^pos_edit_menu_\d+$"),
+            CallbackQueryHandler(cb_start_ticket_quick_stops, pattern=r"^pos_adj_\d+_custom$"),
             CommandHandler("quickstops", cmd_quick_stops),
             CommandHandler("faststops", cmd_quick_stops),
             MessageHandler(filters.Regex(r"^⚡ Quick (Batch )?SL/TP$"), cmd_quick_stops),
@@ -1394,6 +1664,8 @@ def get_batch_conv_handler():
             WAITING_QUICK_STOPS_INPUT: [
                 CallbackQueryHandler(cb_quick_pair_toggle, pattern=r"^qpair_.*$"),
                 CallbackQueryHandler(cb_quick_mode_select, pattern=r"^qstop_mode_.*$"),
+                CallbackQueryHandler(cb_cancel_to_view_ticket, pattern=r"^pos_view_\d+$"),
+                CallbackQueryHandler(cb_cancel_to_positions, pattern="^menu_trades$"),
                 MessageHandler(NOT_MENU_BUTTON, txt_quick_stops_input)
             ],
             WAITING_QUICK_GUIDED_SL: [
@@ -1416,6 +1688,8 @@ def get_batch_conv_handler():
         fallbacks=[
             CommandHandler("cancel", cmd_cancel_batch),
             CallbackQueryHandler(cb_cancel_batch, pattern="^batch_cancel$"),
+            CallbackQueryHandler(cb_cancel_to_view_ticket, pattern=r"^pos_view_\d+$"),
+            CallbackQueryHandler(cb_cancel_to_positions, pattern="^menu_trades$"),
             CallbackQueryHandler(cb_cancel_to_home_menu, pattern="^batch_back_home$")
         ],
         allow_reentry=True
