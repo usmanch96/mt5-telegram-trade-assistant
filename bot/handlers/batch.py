@@ -185,13 +185,13 @@ async def apply_quick_stops_values(positions: list, sl_val: Optional[float], tp_
 
     return (
         f"⚡ *Quick Stops Applied!*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔣 *Target:* `{target_symbol_desc}`\n"
         f"🔴 *Stop Loss:* {sl_str}\n"
         f"🟢 *Take Profit:* {tp_str}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"{risk_block}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"✅ *Successful:* `{success_count}/{len(target_positions)}`\n"
         f"⏱️ *Executed in:* `{elapsed:.2f}s`"
     )
@@ -371,9 +371,9 @@ async def render_quick_stops_screen(message, positions: list, is_edit: bool = Fa
         )
         text = (
             f"⚡ *Quick SL/TP (Trade #{target_ticket})*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"{focus_header}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"✍️ *Quick Type & Send (Fastest):*\n"
             f"• Both: `2740.50 2790.00` (SL & TP)\n"
             f"• SL only: `2740.50` or `sl 2740.50`\n"
@@ -430,9 +430,9 @@ async def render_quick_stops_screen(message, positions: list, is_edit: bool = Fa
             
         text = (
             f"⚡ *Quick Batch SL/TP (Price Entry)*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"{focus_header}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"{pair_hint}"
             f"✍️ *Quick Type & Send (Fastest):*\n"
             f"• Both: `2740.50 2790.00` (SL & TP)\n"
@@ -560,16 +560,16 @@ async def cb_quick_mode_select(update: Update, context: ContextTypes.DEFAULT_TYP
         target_header = f"Ticket `#{target_ticket}` · `{target_positions[0]['symbol']}`" if target_ticket else f"`{target_sym}`"
         msg = (
             f"🛡️ *Break-Even Applied!*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"🔣 *Target:* {target_header}\n"
             f"✅ *Moved to BE:* `{success}/{len(target_positions)} trades`\n"
         )
         if skipped > 0:
             msg += f"⚠️ *Skipped:* `{skipped}` (not in sufficient profit yet)\n"
         msg += (
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"{risk_block}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"⏱️ *Executed in:* `{elapsed:.2f}s`"
         )
         
@@ -609,7 +609,7 @@ async def render_quick_guided_sl_prompt(message, positions: list, is_edit: bool 
     
     text = (
         f"🔴 *Step 1/2: Enter Stop Loss (SL) Price*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
         f"✍️ *Type the new SL price* (e.g. `{bid * 0.995:.{digits}f}`):\n"
@@ -709,7 +709,7 @@ async def render_quick_guided_tp_prompt(message, positions: list, sl_val: Option
     
     text = (
         f"🟢 *Step 2/2: Enter Take Profit (TP) Price*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔴 *SL Level:* {sl_desc}\n"
         f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
@@ -896,7 +896,7 @@ async def render_quick_single_sl_prompt(message, positions: list, is_edit: bool 
     
     text = (
         f"🔴 *Quick Set: Stop Loss (SL) Price*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
         f"✍️ *Type target SL price level* (e.g. `{bid * 0.995:.{digits}f}`):"
@@ -1074,7 +1074,7 @@ async def render_quick_single_tp_prompt(message, positions: list, is_edit: bool 
     
     text = (
         f"🟢 *Quick Set: Take Profit (TP) Price*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔣 *Target:* {target_desc}\n"
         f"📲 *Current Market:* Bid `{bid:.{digits}f}` | Ask `{ask:.{digits}f}`\n\n"
         f"✍️ *Type target TP price level* (e.g. `{ask * 1.005:.{digits}f}`):"
@@ -1519,13 +1519,13 @@ async def cmd_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         await target_message.reply_text(
             f"🛡️ *Break-Even Applied!*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"🔣 *Target:* `{target_name}`\n"
             f"✅ *Updated:* `{success}/{len(target_positions)}`\n"
             f"⚠️ *Skipped (not in profit):* `{skipped}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"{risk_block}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"⏱️ *Time:* `{elapsed:.2f}s`",
             parse_mode="Markdown"
         )
@@ -1569,12 +1569,12 @@ async def cmd_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
         await target_message.reply_text(
             f"❌ *Stops Cleared ({sub.upper()})!*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"🔣 *Target:* `{target_name}`\n"
             f"✅ *Updated:* `{success}/{len(target_positions)}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"{risk_block}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"⏱️ *Time:* `{elapsed:.2f}s`",
             parse_mode="Markdown"
         )

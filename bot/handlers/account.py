@@ -47,16 +47,16 @@ def format_account_info(acc: dict, risk_lines: list = None) -> str:
 
     return (
         f"📊 *Account Status*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"👤 `{acc['login']}` · {acc['name']}\n"
         f"🏢 {acc['company']}\n"
         f"⚙️ Mode `{trade_mode_label}` · Leverage `1:{acc['leverage']}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"💰 *Balance* · `{acc['balance']:,.2f} {acc['currency']}`\n"
         f"📈 *Equity* · `{acc['equity']:,.2f} {acc['currency']}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━"
+        f"━━━━━━━━━━"
         f"{risk_block}"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔒 Locked · `{acc['margin']:,.2f}`  🔓 Free · `{acc['margin_free']:,.2f}`\n"
         f"{margin_section}"
     )
@@ -65,11 +65,11 @@ def _get_offline_account_text() -> str:
     """Fallback text displayed when MT5 terminal is unreachable."""
     return (
         "📊 *Account Status*\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━\n"
         "⚠️ *Connection Pending / Terminal Offline*\n"
         "Could not retrieve live account data from MT5.\n"
         "Please check that your terminal is open and logged in.\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
+        "━━━━━━━━━━\n"
         "👇 Tap Refresh Status to retry:"
     )
 

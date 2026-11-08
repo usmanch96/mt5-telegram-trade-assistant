@@ -134,15 +134,15 @@ def format_position_detail(p: dict, digits: int = 5) -> str:
 
     return (
         f"💼 *Position · #{p['ticket']}*\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔣 *Symbol* · `{p['symbol']}`\n"
         f"{dir_emoji} *Direction* · `{p['type']}`  ·  *Lots* `{p['volume']:.2f}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"📥 *Entry* · `{p['price_open']:.{digits}f}`\n"
         f"📲 *Current* · `{p['price_current']:.{digits}f}`\n"
         f"🔴 *Stop Loss* · {sl_text}\n"
         f"🟢 *Take Profit* · {tp_text}\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━\n"
         f"🔄 *Swap* · `{p['swap']:.2f}`\n"
         f"{pnl_emoji} *Net P&L* · `{pnl_sign}{p['profit']:,.2f}`\n"
         f"💬 *Comment* · `{p['comment'] or 'None'}`\n"
@@ -162,7 +162,7 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not positions:
         text = (
             "💼 *Active Positions*\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
+            "━━━━━━━━━━\n"
             "📭 No open positions on this account."
         )
         markup = get_back_keyboard("menu_main")
@@ -203,7 +203,7 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
         if info:
             sym_map[s] = info
 
-    summary_lines = ["💼 *Active Positions*", "━━━━━━━━━━━━━━━━━━━━"]
+    summary_lines = ["💼 *Active Positions*", "━━━━━━━━━━"]
     total_pnl = 0.0
     total_sl_pnl = 0.0
     total_tp_pnl = 0.0
@@ -251,7 +251,7 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
     sl_total_sign = "+" if total_sl_pnl >= 0 else ""
     tp_total_sign = "+" if total_tp_pnl >= 0 else ""
 
-    summary_lines.append("━━━━━━━━━━━━━━━━━━━━")
+    summary_lines.append("━━━━━━━━━━")
     summary_lines.append(f"📊 *Float P&L* · {pnl_emoji} `{pnl_sign}{total_pnl:,.2f}`")
 
     if has_any_sl:
@@ -710,11 +710,11 @@ async def txt_edit_stops_input(update: Update, context: ContextTypes.DEFAULT_TYP
     if res["success"]:
         res_text = (
             f"✅ *Stops Updated Successfully!*\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"━━━━━━━━━━\n"
             f"🎫 *Ticket:* `#{ticket}` · *{pos['symbol']}*\n"
             f"🔴 *Stop Loss:* {sl_str}\n"
             f"🟢 *Take Profit:* {tp_str}\n"
-            f"━━━━━━━━━━━━━━━━━━━━"
+            f"━━━━━━━━━━"
         )
     else:
         res_text = f"❌ *Failed to modify stops.*\n{res['message']}"
