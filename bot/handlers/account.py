@@ -25,16 +25,19 @@ def format_account_info(acc: dict, risk_lines: list = None) -> str:
     elif acc["margin_level"] < 200:
         margin_section = (
             f"🛡️ Margin Level · `{acc['margin_level']:,.0f}%` 🚨 CRITICAL\n"
+            f"━━━━━━━━━━\n"
             f"{_margin_bar(acc['margin_level'])}\n"
         )
     elif acc["margin_level"] < 500:
         margin_section = (
             f"🛡️ Margin Level · `{acc['margin_level']:,.0f}%` ⚠️ Warning\n"
+            f"━━━━━━━━━━\n"
             f"{_margin_bar(acc['margin_level'])}\n"
         )
     else:
         margin_section = (
             f"🛡️ Margin Level · `{acc['margin_level']:,.0f}%` ✅ Healthy\n"
+            f"━━━━━━━━━━\n"
             f"{_margin_bar(acc['margin_level'])}\n"
         )
 
