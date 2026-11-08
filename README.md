@@ -62,18 +62,18 @@ Designed specifically for traders who need instantaneous monitoring and fast sto
 
 ```mermaid
 graph TD
-    User([📱 Telegram User]) <-->|Commands & Buttons| TG_API[Telegram Bot API]
-    TG_API <-->|Long Polling| BotMain[Python Bot Engine]
+    User(["📱 Telegram User"]) <-->|"Commands & Buttons"| TG_API["Telegram Bot API"]
+    TG_API <-->|"Long Polling"| BotMain["Python Bot Engine"]
 
-    subgraph Local Python Backend
-        BotMain --> Auth[🛡️ Auth Middleware (.env Whitelist)]
-        BotMain --> Handlers[Clean Handlers]
-        Handlers -->|Account| H_Acc[📊 Account Status]
-        Handlers -->|Positions| H_Pos[💼 Active Positions]
-        Handlers -->|Quick Stops| H_Batch[⚡ Quick Batch SL/TP]
+    subgraph "Local Python Backend"
+        BotMain --> Auth["🛡️ Auth Middleware (.env Whitelist)"]
+        BotMain --> Handlers["Clean Handlers"]
+        Handlers -->|"Account"| H_Acc["📊 Account Status"]
+        Handlers -->|"Positions"| H_Pos["💼 Active Positions"]
+        Handlers -->|"Quick Stops"| H_Batch["⚡ Quick Batch SL/TP"]
         
-        Handlers --> MT5_API[MT5 Python API]
-        MT5_API <-->|Local IPC| MT5_Terminal[Selected MT5 Terminal]
+        Handlers --> MT5_API["MT5 Python API"]
+        MT5_API <-->|"Local IPC"| MT5_Terminal["Selected MT5 Terminal"]
     end
 ```
 
