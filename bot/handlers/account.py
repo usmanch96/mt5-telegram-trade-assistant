@@ -69,8 +69,13 @@ def _get_offline_account_text() -> str:
 
 async def render_account_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Unified renderer that displays or updates the live Account Status card in place."""
-    acc_details = await asyncio.to_thread(get_account_details)
-    text = format_account_info(acc_details) if acc_details else _get_offline_account_text()
+    try:
+        acc_details = await asyncio.to_thread(get_account_details)
+        text = format_account_info(acc_details) if acc_details else _get_offline_account_text()
+    except Exception as e:
+        logger.error(f"Error fetching account details: {e}")
+        text = _get_offline_account_text()
+
     reply_markup = get_main_keyboard()
     chat_id = update.effective_chat.id
 
@@ -89,45 +94,17 @@ async def render_account_dashboard(update: Update, context: ContextTypes.DEFAULT
                 raise
         return
 
-    # 2. Triggered from text message (Bottom Menu button or /start, /status, /menu)
+    # 2. Triggered from command (/start, /menu, /status, /dashboard)
     if update.message:
-        # Delete user's command message so chat doesn't get cluttered
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
-
-        # Try to edit the existing card on screen in place!
+        # Delete previous active card so chat stays clean with only 1 card
         old_card_id = context.user_data.get("active_card_msg_id")
         if old_card_id:
             try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=old_card_id,
-                    text=text,
-                    parse_mode="Markdown",
-                    reply_markup=reply_markup
-                )
-                return  # Updated in place cleanly!
-            except Exception as e:
-                if "message is not modified" in str(e).lower():
-                    return
-                # If old card no longer exists, fall through to create a new one
-
-        # Remove any lingering bottom reply keyboard from user's screen
-        if not context.user_data.get("keyboard_removed"):
-            try:
-                rm = await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="⚡",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-                await context.bot.delete_message(chat_id=chat_id, message_id=rm.message_id)
-                context.user_data["keyboard_removed"] = True
+                await context.bot.delete_message(chat_id=chat_id, message_id=old_card_id)
             except Exception:
                 pass
 
-        # Send fresh card and track its ID
+        # Send fresh card at the bottom of the chat right below user's command
         msg = await context.bot.send_message(
             chat_id=chat_id,
             text=text,

@@ -1170,24 +1170,19 @@ async def cmd_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 reply_markup=get_back_keyboard("menu_main")
             )
         else:
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
             old_card_id = context.user_data.get("active_card_msg_id")
             if old_card_id:
                 try:
-                    await context.bot.edit_message_text(
-                        chat_id=update.effective_chat.id,
-                        message_id=old_card_id,
-                        text="📭 *No active positions found* on this account to set stops.",
-                        parse_mode="Markdown",
-                        reply_markup=get_back_keyboard("menu_main")
-                    )
-                    return ConversationHandler.END
+                    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=old_card_id)
                 except Exception:
                     pass
-            await target_message.reply_text("📭 No active positions found to update.")
+            msg = await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="📭 *No active positions found* on this account to set stops.",
+                parse_mode="Markdown",
+                reply_markup=get_back_keyboard("menu_main")
+            )
+            context.user_data["active_card_msg_id"] = msg.message_id
         return ConversationHandler.END
         
     args = getattr(context, "args", None)
@@ -1195,10 +1190,12 @@ async def cmd_quick_stops(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data["quick_target_symbol"] = "ALL"
         is_edit = update.callback_query is not None
         if update.message:
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
+            old_card_id = context.user_data.get("active_card_msg_id")
+            if old_card_id:
+                try:
+                    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=old_card_id)
+                except Exception:
+                    pass
         return await render_quick_stops_screen(target_message, positions, is_edit=is_edit, selected_symbol="ALL", context=context)
         
     first_arg = args[0].lower()

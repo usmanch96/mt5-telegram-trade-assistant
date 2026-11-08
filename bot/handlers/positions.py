@@ -176,25 +176,13 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
             return
 
         if update.message:
-            try:
-                await update.message.delete()
-            except Exception:
-                pass
             chat_id = update.effective_chat.id
             old_card_id = context.user_data.get("active_card_msg_id")
             if old_card_id:
                 try:
-                    await context.bot.edit_message_text(
-                        chat_id=chat_id,
-                        message_id=old_card_id,
-                        text=text,
-                        parse_mode="Markdown",
-                        reply_markup=markup
-                    )
-                    return
-                except Exception as e:
-                    if "message is not modified" in str(e).lower():
-                        return
+                    await context.bot.delete_message(chat_id=chat_id, message_id=old_card_id)
+                except Exception:
+                    pass
             msg = await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=markup)
             context.user_data["active_card_msg_id"] = msg.message_id
             return
@@ -296,25 +284,13 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     if update.message:
-        try:
-            await update.message.delete()
-        except Exception:
-            pass
         chat_id = update.effective_chat.id
         old_card_id = context.user_data.get("active_card_msg_id")
         if old_card_id:
             try:
-                await context.bot.edit_message_text(
-                    chat_id=chat_id,
-                    message_id=old_card_id,
-                    text="\n".join(summary_lines),
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup(keyboard_buttons)
-                )
-                return
-            except Exception as e:
-                if "message is not modified" in str(e).lower():
-                    return
+                await context.bot.delete_message(chat_id=chat_id, message_id=old_card_id)
+            except Exception:
+                pass
         msg = await context.bot.send_message(
             chat_id=chat_id,
             text="\n".join(summary_lines),
