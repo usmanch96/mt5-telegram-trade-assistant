@@ -37,13 +37,13 @@ class DealEvent:
     profit: float
     reason: int
     sound_event: Optional[str]
-    telegram_message: Optional[str]
 
 
 class DealWatcher:
     """
-    Watches MT5 history deals for fills, TP hits, SL hits, and external closes.
-    Differentiates bot-triggered actions from broker or client actions to prevent duplicate alerts.
+    Watches MT5 history deals for fills, TP hits, SL hits, and external closes
+    to trigger local PC speaker audio alerts.
+    Differentiates bot-triggered actions from broker or client actions to prevent duplicate audio.
     """
 
     def __init__(self):
@@ -55,7 +55,7 @@ class DealWatcher:
     def record_bot_action(self, position_id: int, action: str = "CLOSE") -> None:
         """
         Records that an action on a position was intentionally performed by the bot.
-        Suppresses redundant notifications when the deal later appears in deal history.
+        Suppresses redundant audio when the deal later appears in deal history.
         """
         now = time.time()
         self._bot_handled_actions[position_id] = (action, now)
@@ -73,16 +73,10 @@ class DealWatcher:
         self._cleanup_old_actions()
         return position_id in self._bot_handled_actions
 
-    def _format_price(self, symbol: str, price: float) -> str:
-        """Formats price with appropriate decimal precision."""
-        if any(x in symbol.upper() for x in ["JPY", "XAU", "BTC", "US30", "NAS100", "ETH", "US500", "DXY"]):
-            return f"{price:.2f}"
-        return f"{price:.5f}"
-
     def poll_new_deals(self) -> List[DealEvent]:
         """
         Polls MT5 recent deal history.
-        On first invocation, silently seeds existing deals to avoid spamming historical trades.
+        On first invocation, silently seeds existing deals to avoid triggering on past trades.
         On subsequent polls, returns DealEvent objects for newly executed deals.
         """
         try:
@@ -126,24 +120,9 @@ class DealWatcher:
             price = float(d.price)
             profit = float(d.profit)
             pos_id = int(d.position_id) if d.position_id else int(d.order)
-            price_str = self._format_price(symbol, price)
 
-            pnl_emoji = "🟢" if profit >= 0 else "🔴"
-            pnl_sign = "+" if profit >= 0 else "-"
-            pnl_str = f"{pnl_sign}${abs(profit):.2f}"
-
-            # 1. Position Entry (New trade opened on MT5, mobile, or broker)
+            # 1. Position Entry (New trade opened on MT5 desktop, mobile, or broker)
             if d.entry == DEAL_ENTRY_IN:
-                side_str = "BUY" if d.type == DEAL_TYPE_BUY else "SELL"
-                side_emoji = "🟩" if d.type == DEAL_TYPE_BUY else "🟥"
-                
-                msg = (
-                    "📥 *Order Filled*\n"
-                    "━━━━━━━━━━\n"
-                    f"*{symbol}* · {side_emoji} {side_str} {vol:.2f}L\n"
-                    f"🎫 Position `#{pos_id}`\n"
-                    f"📍 Entry @ `{price_str}`"
-                )
                 new_events.append(DealEvent(
                     ticket=d.ticket,
                     position_id=pos_id,
@@ -153,22 +132,13 @@ class DealWatcher:
                     price=price,
                     profit=profit,
                     reason=d.reason,
-                    sound_event="ORDER_FILLED",
-                    telegram_message=msg
+                    sound_event="ORDER_FILLED"
                 ))
 
             # 2. Position Exit (Closed trade)
             elif d.entry in (DEAL_ENTRY_OUT, DEAL_ENTRY_INOUT, DEAL_ENTRY_OUT_BY):
                 # A. Take Profit Hit on Broker
                 if d.reason == DEAL_REASON_TP:
-                    msg = (
-                        "🎯 *Take Profit Hit!*\n"
-                        "━━━━━━━━━━\n"
-                        f"*{symbol}* · 🏁 Closed {vol:.2f}L\n"
-                        f"🎫 Position `#{pos_id}`\n"
-                        f"🏁 Exit @ `{price_str}`\n"
-                        f"💰 Realized: {pnl_emoji} {pnl_str}"
-                    )
                     new_events.append(DealEvent(
                         ticket=d.ticket,
                         position_id=pos_id,
@@ -178,20 +148,11 @@ class DealWatcher:
                         price=price,
                         profit=profit,
                         reason=d.reason,
-                        sound_event="TP_HIT",
-                        telegram_message=msg
+                        sound_event="TP_HIT"
                     ))
 
                 # B. Stop Loss Hit on Broker
                 elif d.reason == DEAL_REASON_SL:
-                    msg = (
-                        "🛑 *Stop Loss Hit!*\n"
-                        "━━━━━━━━━━\n"
-                        f"*{symbol}* · 🏁 Closed {vol:.2f}L\n"
-                        f"🎫 Position `#{pos_id}`\n"
-                        f"🏁 Exit @ `{price_str}`\n"
-                        f"💰 Realized: {pnl_emoji} {pnl_str}"
-                    )
                     new_events.append(DealEvent(
                         ticket=d.ticket,
                         position_id=pos_id,
@@ -201,20 +162,11 @@ class DealWatcher:
                         price=price,
                         profit=profit,
                         reason=d.reason,
-                        sound_event="SL_HIT",
-                        telegram_message=msg
+                        sound_event="SL_HIT"
                     ))
 
                 # C. Stop Out / Margin Call Hit
                 elif d.reason == DEAL_REASON_SO:
-                    msg = (
-                        "⚠️ *Stop Out (Margin Call)!*\n"
-                        "━━━━━━━━━━\n"
-                        f"*{symbol}* · 🏁 Closed {vol:.2f}L\n"
-                        f"🎫 Position `#{pos_id}`\n"
-                        f"🏁 Exit @ `{price_str}`\n"
-                        f"💰 Realized: {pnl_emoji} {pnl_str}"
-                    )
                     new_events.append(DealEvent(
                         ticket=d.ticket,
                         position_id=pos_id,
@@ -224,26 +176,17 @@ class DealWatcher:
                         price=price,
                         profit=profit,
                         reason=d.reason,
-                        sound_event="STOP_OUT",
-                        telegram_message=msg
+                        sound_event="STOP_OUT"
                     ))
 
                 # D. Normal / Manual / Bot Close
                 else:
                     if self.was_handled_by_bot(pos_id):
-                        # The user already received immediate bot confirmation and audio upon button click
-                        logger.debug(f"Deal #{d.ticket} for pos #{pos_id} already handled by bot. Skipping duplicate alert.")
+                        # The user already received immediate audio upon button click
+                        logger.debug(f"Deal #{d.ticket} for pos #{pos_id} already handled by bot. Skipping duplicate audio.")
                         continue
 
                     # External close (e.g. from desktop MT5 or phone MT5 app)
-                    msg = (
-                        "💼 *Position Closed (External)*\n"
-                        "━━━━━━━━━━\n"
-                        f"*{symbol}* · 🏁 Closed {vol:.2f}L\n"
-                        f"🎫 Position `#{pos_id}`\n"
-                        f"🏁 Exit @ `{price_str}`\n"
-                        f"💰 Realized: {pnl_emoji} {pnl_str}"
-                    )
                     new_events.append(DealEvent(
                         ticket=d.ticket,
                         position_id=pos_id,
@@ -253,8 +196,7 @@ class DealWatcher:
                         price=price,
                         profit=profit,
                         reason=d.reason,
-                        sound_event="ORDER_CLOSED",
-                        telegram_message=msg
+                        sound_event="ORDER_CLOSED"
                     ))
 
         return new_events
@@ -278,25 +220,14 @@ def record_bot_action(position_id: int, action: str = "CLOSE") -> None:
 async def poll_deals_job(context) -> None:
     """
     Periodic job run by telegram.ext.JobQueue.
-    Detects broker TP/SL executions or external fills, plays audio alerts, and alerts users.
+    Detects broker TP/SL executions or external fills and triggers local PC audio alerts.
+    Does NOT send Telegram message cards to keep chat completely uncluttered.
     """
     try:
         events = get_deal_watcher().poll_new_deals()
         for event in events:
-            # 1. Play local sound immediately on PC speaker
+            # Play local sound immediately on PC speaker
             if event.sound_event:
                 play_sound(event.sound_event)
-
-            # 2. Broadcast notification card to authorized Telegram users
-            if event.telegram_message:
-                for uid in settings.AUTHORIZED_USERS:
-                    try:
-                        await context.bot.send_message(
-                            chat_id=uid,
-                            text=event.telegram_message,
-                            parse_mode="Markdown"
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to deliver deal alert to user {uid}: {e}")
     except Exception as e:
         logger.error(f"Error in deal watcher job execution: {e}", exc_info=True)

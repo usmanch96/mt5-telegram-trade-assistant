@@ -58,7 +58,7 @@ Designed specifically for traders who need instantaneous monitoring and fast sto
 
 ### 5. 🔊 Authentic PC Audio Alerts & Deal Watcher
 - **Local PC/Laptop Speaker Alerts**: Plays authentic MT5 chimes (`ok.wav`, `stops.wav`, `alert2.wav`) along with crystal-clear voice announcements (*"Order filled"*, *"Position closed"*, *"Take profit hit"*, *"Stop loss hit"*).
-- **Background MT5 Deal Watcher**: Automatically detects when the broker triggers a Take Profit or Stop Loss in the background, plays the corresponding sound, and broadcasts a rich notification card to Telegram with realized P&L.
+- **Background MT5 Deal Watcher**: Automatically monitors MT5 deal settlements in the background and plays the corresponding PC sound whenever a Take Profit, Stop Loss, or Order Fill occurs, without spamming your Telegram chat.
 - **Bot Action Hooks**: Immediate sound feedback on button clicks (close trade, partial close, break-even, quick stops).
 - **Test Command**: Run `/sound` or `/testsound` in Telegram to test your speaker output anytime.
 

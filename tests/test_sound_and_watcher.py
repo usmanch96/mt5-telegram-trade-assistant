@@ -84,7 +84,7 @@ class TestDealWatcher:
             assert 2 in watcher._seen_deal_tickets
 
     def test_detect_tp_hit(self):
-        """Subsequent poll detects Take Profit hit and generates TP_HIT event and message."""
+        """Subsequent poll detects Take Profit hit and generates TP_HIT event."""
         watcher = DealWatcher()
         watcher._initial_seed_done = True
         watcher._seen_deal_tickets.add(1)
@@ -110,8 +110,6 @@ class TestDealWatcher:
             assert evt.sound_event == "TP_HIT"
             assert evt.symbol == "BTCUSD"
             assert evt.profit == 50.25
-            assert "Take Profit Hit!" in evt.telegram_message
-            assert "+$50.25" in evt.telegram_message
 
     def test_detect_sl_hit(self):
         """Subsequent poll detects Stop Loss hit and generates SL_HIT event."""
@@ -137,8 +135,6 @@ class TestDealWatcher:
             assert len(events) == 1
             evt = events[0]
             assert evt.sound_event == "SL_HIT"
-            assert "Stop Loss Hit!" in evt.telegram_message
-            assert "-$50.00" in evt.telegram_message
 
     def test_detect_order_filled(self):
         """Subsequent poll detects new order open from terminal/mobile."""
@@ -163,8 +159,6 @@ class TestDealWatcher:
             assert len(events) == 1
             evt = events[0]
             assert evt.sound_event == "ORDER_FILLED"
-            assert "Order Filled" in evt.telegram_message
-            assert "BUY 0.50L" in evt.telegram_message
 
     def test_suppress_bot_handled_close(self):
         """When an order was already closed by the bot, deal watcher should suppress duplicate alert."""
@@ -193,14 +187,10 @@ class TestDealWatcher:
             assert len(events) == 0
 
     @pytest.mark.asyncio
-    async def test_poll_deals_job_broadcast(self):
-        """Verifies poll_deals_job delivers message to authorized users and plays sound."""
+    async def test_poll_deals_job_plays_sound_without_telegram_messages(self):
+        """Verifies poll_deals_job triggers audio alert on PC speaker and does not spam Telegram."""
         mock_context = MagicMock()
         mock_context.bot.send_message = MagicMock()
-
-        async def fake_send_message(*args, **kwargs):
-            return True
-        mock_context.bot.send_message.side_effect = fake_send_message
 
         evt = DealEvent(
             ticket=99,
@@ -211,13 +201,11 @@ class TestDealWatcher:
             price=76000.0,
             profit=35.0,
             reason=DEAL_REASON_TP,
-            sound_event="TP_HIT",
-            telegram_message="🎯 *Take Profit Hit!*"
+            sound_event="TP_HIT"
         )
 
         with patch("services.deal_watcher.get_deal_watcher") as mock_gw, \
-             patch("services.deal_watcher.play_sound") as mock_play_sound, \
-             patch("services.deal_watcher.settings.AUTHORIZED_USERS", {123456}):
+             patch("services.deal_watcher.play_sound") as mock_play_sound:
             
             mock_watcher = MagicMock()
             mock_watcher.poll_new_deals.return_value = [evt]
@@ -226,7 +214,6 @@ class TestDealWatcher:
             await poll_deals_job(mock_context)
 
             mock_play_sound.assert_called_once_with("TP_HIT")
-            mock_context.bot.send_message.assert_called_once()
-            call_kwargs = mock_context.bot.send_message.call_args[1]
-            assert call_kwargs["chat_id"] == 123456
-            assert "Take Profit Hit!" in call_kwargs["text"]
+            # Must NOT send messages to Telegram chat
+            mock_context.bot.send_message.assert_not_called()
+

@@ -191,3 +191,4 @@ def play_sound(event: str) -> None:
 
     _ensure_worker_running()
     _sound_queue.put((event_upper, wav_name, phrase))
+
