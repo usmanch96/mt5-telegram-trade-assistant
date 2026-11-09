@@ -216,6 +216,9 @@ def modify_position_stops(ticket: int, sl: float, tp: float, sound_event: Option
         logger.info(f"Modify stops skipped for ticket #{ticket}: Target SL ({sl}) & TP ({tp}) match current values.")
         return {"success": True, "message": f"Target SL/TP levels already set for ticket #{ticket}."}
 
+    sl_changed = (sl != curr_sl)
+    tp_changed = (tp != curr_tp)
+
     request = {
         "action": mt5.TRADE_ACTION_SLTP,
         "position": ticket,
@@ -242,7 +245,18 @@ def modify_position_stops(ticket: int, sl: float, tp: float, sound_event: Option
         
     try:
         from services.sound import play_sound
-        play_sound(sound_event or "STOPS_MODIFIED")
+        if sound_event:
+            chosen_event = sound_event
+        elif sl_changed and tp_changed:
+            chosen_event = "STOPS_MODIFIED"
+        elif sl_changed:
+            chosen_event = "SL_UPDATED"
+        elif tp_changed:
+            chosen_event = "TP_UPDATED"
+        else:
+            chosen_event = "STOPS_MODIFIED"
+
+        play_sound(chosen_event)
     except Exception as e:
         logger.debug(f"Audio hook error on modify stops: {e}")
 

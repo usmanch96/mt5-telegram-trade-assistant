@@ -41,6 +41,8 @@ class TestSoundService:
             "ORDER_CLOSED",
             "PARTIAL_CLOSED",
             "STOPS_MODIFIED",
+            "SL_UPDATED",
+            "TP_UPDATED",
             "BREAK_EVEN",
             "TP_HIT",
             "SL_HIT",

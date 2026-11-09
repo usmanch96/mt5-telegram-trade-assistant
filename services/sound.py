@@ -1,5 +1,6 @@
 import os
 import queue
+import time
 import threading
 from typing import Optional, Dict, Any, Tuple
 from config import settings
@@ -23,6 +24,8 @@ EVENT_SOUND_MAP: Dict[str, Tuple[str, str]] = {
     "ORDER_CLOSED": ("ok.wav", "Position closed"),
     "PARTIAL_CLOSED": ("ok.wav", "Partial closed"),
     "STOPS_MODIFIED": ("stops.wav", "Stops updated"),
+    "SL_UPDATED": ("stops.wav", "Stop loss updated"),
+    "TP_UPDATED": ("stops.wav", "Take profit updated"),
     "BREAK_EVEN": ("stops.wav", "Stop loss moved to break even"),
     "TP_HIT": ("stops.wav", "Take profit hit"),
     "SL_HIT": ("alert2.wav", "Stop loss hit"),
@@ -174,6 +177,8 @@ def _ensure_worker_running() -> None:
             _worker_thread.start()
 
 
+_last_sound_time: Dict[str, float] = {}
+
 def play_sound(event: str) -> None:
     """
     Triggers an asynchronous sound alert (chime and/or voice) on the local PC speaker.
@@ -183,6 +188,13 @@ def play_sound(event: str) -> None:
         return
 
     event_upper = event.upper()
+    now = time.time()
+    last_time = _last_sound_time.get(event_upper, 0.0)
+    # Debounce identical sound events within 1.5 seconds (prevents repeating voice 5x in batch operations)
+    if now - last_time < 1.5:
+        return
+    _last_sound_time[event_upper] = now
+
     sound_def = EVENT_SOUND_MAP.get(event_upper)
     if not sound_def:
         wav_name, phrase = "ok.wav", "Notification"
