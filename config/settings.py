@@ -42,7 +42,8 @@ LOG_FILE = str(BASE_DIR / "logs" / "app.log")
 
 # Sound Alerts (Option 3: Local PC Speaker)
 SOUND_ALERTS_ENABLED = os.getenv("SOUND_ALERTS_ENABLED", "true").lower() in ("true", "1", "yes")
-SOUND_ALERT_MODE = os.getenv("SOUND_ALERT_MODE", "both").lower()  # 'both', 'chime', 'voice'
+# Modes: 'voice' (voice announcement only), 'chime' (wav chime only), 'both' (wav + voice)
+SOUND_ALERT_MODE = os.getenv("SOUND_ALERT_MODE", "voice").lower()
 raw_sounds_dir = os.getenv("MT5_SOUNDS_DIR", "").strip()
 MT5_SOUNDS_DIR = raw_sounds_dir if raw_sounds_dir else None
 

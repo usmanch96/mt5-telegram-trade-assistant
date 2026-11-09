@@ -118,7 +118,7 @@ def _play_sync(event: str, wav_name: str, phrase: str) -> None:
     Executes playback of chime and/or voice inside the background worker thread.
     Guaranteed not to throw exceptions.
     """
-    mode = getattr(settings, "SOUND_ALERT_MODE", "both").lower()
+    mode = getattr(settings, "SOUND_ALERT_MODE", "voice").lower()
 
     # 1. Chime Playback (MT5 WAV file)
     if mode in ("both", "chime") and winsound is not None:
