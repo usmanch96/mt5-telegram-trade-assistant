@@ -277,6 +277,60 @@ async def cb_active_positions(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         summary_lines.append("🟢 *Total TP Target* · _No TP set_")
 
+    # By Pair breakdown for SL Risk & TP Target
+    pair_blocks = []
+    for sym in sorted(unique_symbols):
+        p_list = [p for p in positions if p["symbol"] == sym]
+        p_count = len(p_list)
+        p_vol = sum(p["volume"] for p in p_list)
+        p_profit = sum(p["profit"] for p in p_list)
+
+        p_sl_total = 0.0
+        p_tp_total = 0.0
+        p_has_sl = False
+        p_has_tp = False
+
+        s_info = sym_map.get(sym)
+        for p in p_list:
+            sl_pnl, tp_pnl = calc_position_sl_tp_pnl(p, s_info, is_cent_account=is_cent)
+            if p["sl"] > 0:
+                p_has_sl = True
+                if sl_pnl is not None:
+                    p_sl_total += sl_pnl
+            if p["tp"] > 0:
+                p_has_tp = True
+                if tp_pnl is not None:
+                    p_tp_total += tp_pnl
+
+        p_pnl_emoji = "🟢" if p_profit >= 0 else "🔴"
+        p_pnl_sign = "+" if p_profit >= 0 else ""
+
+        if p_has_sl:
+            p_sl_emoji = "🟢" if p_sl_total >= 0 else "🔴"
+            p_sl_sign = "+" if p_sl_total >= 0 else ""
+            p_sl_line = f"   🔴 Total SL Risk · {p_sl_emoji} `{p_sl_sign}{p_sl_total:,.2f}`"
+        else:
+            p_sl_line = "   🔴 Total SL Risk · _No SL set_"
+
+        if p_has_tp:
+            p_tp_sign = "+" if p_tp_total >= 0 else ""
+            p_tp_line = f"   🟢 Total TP Target · 🟢 `{p_tp_sign}{p_tp_total:,.2f}`"
+        else:
+            p_tp_line = "   🟢 Total TP Target · _No TP set_"
+
+        trade_word = "trade" if p_count == 1 else "trades"
+        pair_lines = [
+            f"🔸 *{sym}* ({p_count} {trade_word} · `{p_vol:.2f}L`)",
+            f"   📊 Float P&L · {p_pnl_emoji} `{p_pnl_sign}{p_profit:,.2f}`",
+            p_sl_line,
+            p_tp_line
+        ]
+        pair_blocks.append("\n".join(pair_lines))
+
+    if pair_blocks:
+        summary_lines.append("━━━━━━━━━━")
+        summary_lines.append("\n\n".join(pair_blocks))
+
     summary_lines.append("")
     summary_lines.append("👇 _Tap a ticket to manage:_")
 
