@@ -19,9 +19,19 @@ def format_account_info(acc: dict, risk_lines: list = None) -> str:
     """Formats MT5 account information dictionary into a rich Markdown status card."""
     trade_mode_label = _TRADE_MODE_LABELS.get(acc["trade_mode"], str(acc["trade_mode"]))
 
-    no_trades = acc["margin_level"] == 0
-    if no_trades:
+    # Detect if positions exist
+    positions_count = acc.get("positions_total", 0)
+    has_open_trades = positions_count > 0 or (risk_lines and len(risk_lines) > 0) or acc.get("profit", 0) != 0
+
+    if not has_open_trades:
         margin_section = "🛡️ Margin Level · ℹ️ No open trades\n"
+    elif acc.get("margin_level", 0) == 0 or acc.get("margin", 0) == 0:
+        # Zero margin required (e.g. Exness Unlimited Leverage or fully hedged) -> 0% margin risk!
+        margin_section = (
+            "🛡️ Margin Level · `∞` (Zero Margin) ✅ Healthy\n"
+            "━━━━━━━━━━\n"
+            f"{_margin_bar(1000)}\n"
+        )
     elif acc["margin_level"] < 200:
         margin_section = (
             f"🛡️ Margin Level · `{acc['margin_level']:,.0f}%` 🚨 CRITICAL\n"
@@ -48,12 +58,16 @@ def format_account_info(acc: dict, risk_lines: list = None) -> str:
         profit_sign  = "+" if acc["profit"] >= 0 else ""
         risk_block = f"\n📊 *Float P&L* · {profit_emoji} `{profit_sign}{acc['profit']:,.2f} {acc['currency']}`\n"
 
+    # Human-readable leverage (Exness unlimited leverage is represented as 2,000,000,000)
+    leverage_val = acc.get("leverage", 1)
+    leverage_str = "1:Unlimited" if leverage_val >= 1000000 else f"1:{leverage_val}"
+
     return (
         f"📊 *Account Status*\n"
         f"━━━━━━━━━━\n"
         f"👤 `{acc['login']}` · {acc['name']}\n"
         f"🏢 {acc['company']}\n"
-        f"⚙️ Mode `{trade_mode_label}` · Leverage `1:{acc['leverage']}`\n"
+        f"⚙️ Mode `{trade_mode_label}` · Leverage `{leverage_str}`\n"
         f"━━━━━━━━━━\n"
         f"💰 *Balance* · `{acc['balance']:,.2f} {acc['currency']}`\n"
         f"📈 *Equity* · `{acc['equity']:,.2f} {acc['currency']}`\n"

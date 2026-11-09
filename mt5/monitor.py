@@ -30,7 +30,8 @@ def get_account_details() -> Optional[Dict[str, Any]]:
             "margin": acc_info.margin,
             "margin_free": acc_info.margin_free,
             "margin_level": acc_info.margin_level,
-            "company": acc_info.company
+            "company": acc_info.company,
+            "positions_total": mt5.positions_total() or 0
         }
     except Exception as e:
         logger.error(f"Exception while getting account details: {e}")

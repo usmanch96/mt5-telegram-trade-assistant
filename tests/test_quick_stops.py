@@ -258,11 +258,58 @@ async def test_apply_quick_stops():
 
     print("\nAll Quick Stops tests passed with 100% success!")
 
+def test_format_account_info_unlimited_leverage():
+    """Verifies that format_account_info handles zero margin with open trades (e.g. Exness Unlimited Leverage)."""
+    from bot.handlers.account import format_account_info
+
+    # 1. Open trades with Unlimited Leverage (margin == 0.0, margin_level == 0.0)
+    acc_unlimited = {
+        "login": 460312762,
+        "name": "Hope",
+        "company": "Exness Technologies Ltd",
+        "trade_mode": 2,
+        "leverage": 2000000000,
+        "balance": 100.0,
+        "equity": 86.87,
+        "profit": -13.13,
+        "margin": 0.0,
+        "margin_free": 86.87,
+        "margin_level": 0.0,
+        "currency": "USD",
+        "positions_total": 2
+    }
+    risk_lines = ["📊 *Float P&L* · 🔴 `-13.13 USD`", "🔴 *Total SL Risk* · 🔴 `-57.45 USD`"]
+    text = format_account_info(acc_unlimited, risk_lines=risk_lines)
+    
+    assert "Leverage `1:Unlimited`" in text
+    assert "🛡️ Margin Level · `∞` (Zero Margin) ✅ Healthy" in text
+    assert "No open trades" not in text
+
+    # 2. Truly no open trades (positions_total == 0, profit == 0, no risk lines)
+    acc_empty = {
+        "login": 460312762,
+        "name": "Hope",
+        "company": "Exness Technologies Ltd",
+        "trade_mode": 2,
+        "leverage": 500,
+        "balance": 100.0,
+        "equity": 100.0,
+        "profit": 0.0,
+        "margin": 0.0,
+        "margin_free": 100.0,
+        "margin_level": 0.0,
+        "currency": "USD",
+        "positions_total": 0
+    }
+    text_empty = format_account_info(acc_empty, risk_lines=None)
+    assert "🛡️ Margin Level · ℹ️ No open trades" in text_empty
+
 def main():
     test_quick_stops_keyboards()
     test_quick_price_parser()
     asyncio.run(test_compute_portfolio_risk_summary())
     asyncio.run(test_apply_quick_stops())
+    test_format_account_info_unlimited_leverage()
 
 if __name__ == "__main__":
     main()
