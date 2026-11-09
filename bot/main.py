@@ -1,4 +1,5 @@
 from telegram import Update
+from telegram.error import NetworkError, TimedOut, RetryAfter
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from telegram.request import HTTPXRequest
 from config import settings
@@ -16,13 +17,28 @@ from bot.handlers.batch import get_batch_conv_handler, cmd_quick_stops
 from services.logger import logger
 
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Logs unhandled errors and prevents bot loop crashes from network timeouts."""
+    """Logs unhandled errors gracefully and prevents bot loop crashes from network timeouts."""
     err = context.error
-    if err:
-        err_str = str(err).lower()
-        # Silently ignore harmless Telegram UI updates where state didn't change or old button was tapped
-        if "message is not modified" in err_str or "query is too old" in err_str:
-            return
+    if not err:
+        return
+
+    err_str = str(err).lower()
+
+    # 1. Silently ignore harmless Telegram UI callbacks (e.g. repeated tap, message unchanged)
+    if any(m in err_str for m in ["message is not modified", "query is too old", "message to edit not found"]):
+        return
+
+    # 2. Transient Telegram API / Cloudflare network hiccups (Bad Gateway 502, Gateway Timeout 504, TimedOut)
+    if isinstance(err, (NetworkError, TimedOut)) or any(k in err_str for k in ["bad gateway", "gateway timeout", "timed out", "connection reset", "remote disconnected"]):
+        logger.warning(f"Telegram network blip: {err}. Polling loop will auto-reconnect automatically.")
+        return
+
+    # 3. Flood control / Rate limit
+    if isinstance(err, RetryAfter):
+        logger.warning(f"Telegram rate limit: retrying in {err.retry_after}s.")
+        return
+
+    # 4. Actual unexpected code exceptions
     logger.error("Exception while handling an update:", exc_info=context.error)
 
 async def cb_noop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -35,8 +51,14 @@ def build_bot_app():
     if not settings.TELEGRAM_BOT_TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set in environment variables.")
         
-    # Configure custom HTTP request timeouts (20s) to absorb network latency
-    t_request = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+    # Configure resilient HTTP request timeouts (30s read, HTTP/1.1 to prevent 1-hour H2 proxy drops)
+    t_request = HTTPXRequest(
+        connect_timeout=15.0,
+        read_timeout=30.0,
+        write_timeout=15.0,
+        pool_timeout=15.0,
+        http_version="1.1"
+    )
     
     app = ApplicationBuilder().token(settings.TELEGRAM_BOT_TOKEN).request(t_request).build()
     
@@ -87,4 +109,4 @@ def run_bot_polling():
     """Runs the bot in blocking polling mode (standard for local runners)."""
     app = build_bot_app()
     logger.info("Starting Telegram Bot polling...")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True, allowed_updates=Update.ALL_TYPES)
